@@ -1,1 +1,3 @@
 *.csv text eol=lf
+# 接入补丁保留目标 CRLF 和 diff 上下文空格，避免转换后无法应用。
+integrations/*.patch -text whitespace=-blank-at-eol,-blank-at-eof
