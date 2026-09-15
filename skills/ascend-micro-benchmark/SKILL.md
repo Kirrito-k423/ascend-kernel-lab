@@ -7,7 +7,19 @@ description: 设计并验证 Ascend 接口的功能边界与性能微基准，�
 
 ## 定位资料
 
-解析本 skill 真实源目录，向上两级找到本仓。读 [当前状态](../../README.md)、[实验设计](../../docs/benchmark-design.md)、[数据契约](../../docs/data-contracts.md)，使用 [实验模板](../../templates/experiment.md)。运行器未实现时，为当前问题先实现最小闭环；模板不是已完成的 NPU 实验。
+解析本 skill 真实源目录，向上两级找到本仓。读 [当前状态](../../README.md)、[运行说明](../../docs/quickstart.md)、[实验设计](../../docs/benchmark-design.md)、[数据契约](../../docs/data-contracts.md)，使用 [实验模板](../../templates/experiment.md)。DataCopy/GatherMask已在Ascend910_9382实测；其他型号、dtype及多卡不能沿用为已验证能力。
+
+## 已有执行入口
+
+先按运行说明编译，再在仓库根目录执行：
+
+```bash
+python3 scripts/run_micro.py --device 0 --smoke --samples 2 --warmup 1 --output results/<新冒烟名>
+python3 scripts/run_micro.py --device 0 --case-json examples/followup.json --samples 20 --warmup 3 --output results/<新实验名>
+python3 scripts/report.py results/<实验名>
+```
+
+参数与oracle位于 `python/akl/cases.py`，参考可执行配置 `examples/followup.json`。新增API同时添加kernel、oracle和合法性检查。当前指标包含每调用的完成同步，不当成异步饱和吞吐。
 
 ## 工作流程
 

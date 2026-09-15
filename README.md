@@ -4,7 +4,9 @@
 
 ## 当前状态
 
-**设计与 skill 初始版本。** 已提供需求、架构、数据契约、实验计划和两个可安装 skill。设备端采集库、运行器、绘图程序和实机性能数据尚未实现。以下模块与接口属于规划。
+**已完成 A3 单卡最小实机闭环。** DataCopy 支持1/8/48个AIV的连续与跨步读写，GatherMask支持固定及自定义掩码的正确性、计时和出图。106个配置、2998次启动通过验证（含预热及采集开关对照）。提供原始tick、CSV、PNG/SVG、交互HTML和Trace JSON。
+
+先看 [运行与接入说明](docs/quickstart.md)、[实测报告](reports/a3-20260915/README.md) 和 [实现边界](docs/implementation-status.md)。跨核时钟严格校准、多卡竞争和真实业务仓接入尚未完成。
 
 | 能力 | 目标 | 入口 |
 | --- | --- | --- |
@@ -16,7 +18,7 @@
 1. 阅读 [需求与验收标准](docs/requirements.md) 和 [DebugClock 调查](docs/debugclock-review.md)。
 2. 在目标环境填写 [实验记录](templates/experiment.md)，确认芯片、CANN、工具链与拓扑。
 3. 调用 `$ascend-kernel-trace` 调试真实算子，或 `$ascend-micro-benchmark` 验证接口。两个 skill 均要求区分已设计、已实现和已验证。
-4. 按 [实施顺序](docs/roadmap.md) 完成时钟探针，再接真实算子和扩展实验。
+4. 按 [运行说明](docs/quickstart.md) 复现已验证实验，再依据 [实施顺序](docs/roadmap.md) 扩展。
 
 ## Skill 安装
 
@@ -31,4 +33,4 @@
 - 保留失败、缺失和扰动；没有实测数据就不生成性能结论。
 - 目标仓只做显式接入；通用采集、解析、绘图和知识由本仓维护。
 
-本轮未复制参考仓库实现。来源和检查版本见调查记录。
+记录器和实验实现均独立编写，未复制参考仓库实现。参考来源和检查版本见调查记录。
