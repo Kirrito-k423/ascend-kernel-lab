@@ -33,37 +33,22 @@ Flush 的 EVENT_ID0（S→MTE3、MTE3→S）必须空闲；仅支持每个逻辑
 
 当前仅支持普通 launch；图捕获、跨卡校准、混合 AIC/AIV 和生产并发集成尚未验收。增加容量也会增加设备局部存储和导出 UB 开销，须在目标芯片检查资源与扰动。
 
-## 替换 ascend_deepep
+## 构建依赖与离线分析
 
-补丁固定适用于 `deepep_ccd` 的 `19c40e99a622c2778c4c5ce94aa1f6adc33effbc`。已在该提交上验证 `git apply --check` 与应用结果；尚未完成目标工程编译/运行。
+设备和 Host 部分均为 header-only；使用仓固定本仓提交，将 `include/` 加入自己的构建路径。无需构建本仓的 micro-benchmark，通用库不携带业务仓补丁。
 
-补丁替换 21 个数字打点，在 URMASendToken 的 while 循环增加 iteration 点，并传递独立 GM 参数。Host 的公开 launch 函数签名保持兼容；旧 duration CSV 导出由新的原始记录导出替代。默认容量 256，可修改补丁中的 `AKL_TRACE_CAPACITY`。
+`ascend_deepep` 的构建依赖、独立 GM 参数和打点替换由它自己的 PR 维护；业务编译/运行步骤以该 PR 说明为准。
 
-在自己的目标仓检查工作区差异，保留已有修改后执行：
+每次 `Capture::Export` 生成独立 `rankN-pidP-launchL/trace.bin` 和 `capture.json`。将下面的路径换成实际采集目录与参与构建的打点源码：
 
 ```bash
 export AKL_ROOT=/path/to/ascend-kernel-lab
-git rev-parse HEAD
-git apply --check "$AKL_ROOT/integrations/ascend_deepep-19c40e9.patch"
-git apply "$AKL_ROOT/integrations/ascend_deepep-19c40e9.patch"
-source /usr/local/Ascend/cann/set_env.sh
-export CPLUS_INCLUDE_PATH="$AKL_ROOT/include${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
-DEBUG_CLOCK_ON=ON EP_NUM_TOPK_IDX_BITS=32 bash scripts/build.sh
-export DISPATCH_CLOCK_DIR="$PWD/results/semantic-clock"
-# 随后运行你的既有 dispatch 正确性用例，先检查 npu-smi info。
-```
-
-构建命令沿用目标仓 `scripts/build.sh` 的开关。头文件不在目标仓复制，`AKL_ROOT` 应固定到这次核心 PR 的提交。`DEBUG_CLOCK_ON=OFF` 可构建关闭路径。
-
-每次调用会生成 `rankN-pidP-launchL/trace.bin` 和 `capture.json`；原始数据不覆盖旧 launch。保存和分析包含同步及文件 I/O，仅用于诊断，不用它推断未插桩吞吐。
-
-```bash
 PYTHONPATH="$AKL_ROOT/python" python3 -m akl.semantic \
-  "$DISPATCH_CLOCK_DIR/rankN-pidP-launchL" \
-  --source "$PWD/kernels/elastic_dispatch.cpp"
+  /path/to/results/rankN-pidP-launchL \
+  --source /path/to/kernel.cpp
 ```
 
-将目录名换成实际输出。生成 `semantic.html`、`semantic.svg`、`semantic.jsonl`、`counts.json`。离线入口只依赖 Python 标准库。
+生成 `semantic.html`、`semantic.svg`、`semantic.jsonl`、`counts.json`。离线入口只依赖 Python 标准库；不同 launch 的原始数据不覆盖，分析时使用与构建一致的源码。
 
 ## 阅读与验证
 

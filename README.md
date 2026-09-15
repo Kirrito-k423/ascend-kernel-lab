@@ -37,4 +37,4 @@
 
 ## 语义打点试用
 
-新增多级字符串打点、绝对 cycle、循环出现次数和分层 HTML/SVG。提供固定版本的 ascend_deepep 接入补丁，见 [语义打点说明](docs/semantic-trace.md)。新能力已通过 CPU 与浏览器验证，本轮 CANN/NPU 尚未验证。
+新增多级字符串打点、绝对 cycle、循环出现次数和分层 HTML/SVG。使用仓通过固定版本依赖接入，见 [语义打点说明](docs/semantic-trace.md)。新能力已通过 CPU 与浏览器验证，本轮 CANN/NPU 尚未验证。
