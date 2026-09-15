@@ -1,0 +1,4 @@
+interface:
+  display_name: "昇腾接口微基准"
+  short_description: "围绕昇腾接口的参数能力、正确性与性能设计可复现实验并沉淀结论"
+  default_prompt: "使用 $ascend-micro-benchmark 设计并验证 DataCopy 的跨步搬运实验。"

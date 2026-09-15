@@ -1,0 +1,4 @@
+interface:
+  display_name: "昇腾算子时间打点"
+  short_description: "为真实昇腾算子设计低扰动打点、核间时间对齐与时间线报告流程"
+  default_prompt: "使用 $ascend-kernel-trace 为目标算子设计并验证多核时间打点。"
