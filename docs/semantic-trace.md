@@ -1,0 +1,84 @@
+# 语义打点与循环计数
+
+本接口已通过 CPU 协议测试和浏览器检查；本轮未完成 CANN 编译与 NPU 实测。既有 A3 micro-benchmark 结果不作为新接口的实测证据。
+
+## 写法
+
+```cpp
+#include "akl/trace/semantic.h"
+akl::Recorder<true, 256> clock;
+#define DebugClock(...) AKL_DEBUG_CLOCK(clock, __VA_ARGS__)
+DebugClock("big func", "sub func", "A part", "entry");
+while (condition) {
+    DebugClock("big func", "sub func", "A part", "iteration");
+    // 原业务逻辑
+}
+DebugClock("big func", "sub func", "A part", "a part end");
+```
+
+- 每项是非空 UTF-8 字符串字面量，最后一项表示当前打点，其余项是父级。不需注册数字，不受其他位置插入打点影响。
+- FNV-1a 在编译期生成内部 ID，离线扫描同一份源码还原路径；发现哈希冲突或未知 ID 就拒绝分析。建议将构建源码与结果一起留存。
+- 同一路径每次执行都会追加记录；`sequence` 是核内顺序，`occurrence` 是该核该点第几次；`counts.json` 自动汇总每核每路径次数。
+- 容量为每核记录条数，须为正偶数；例中 256 个槽位。满后保留前缀并累计 `dropped`。次数只覆盖保留记录，不能当成完整循环总次数；应增加容量后重跑。
+- 打点只读 `GetSystemCycle`，没有核内 printf 或隐式 barrier。`entry/end` 等名字不自动产生同步或 span；图中区间表示一次打点到下一次打点。
+- 字面量使用 JSON 兼容转义；不支持变量、相邻字面量拼接、raw string、八进制/十六进制转义或自定义打点宏名。直接宏首参须为记录器标识符。
+
+## Host 与设备连接
+
+Host 使用 `akl::Capture<256> trace(blocks, stream)`，将 `trace.Data()` 作为独立 GM 参数传入 kernel。每次 launch 都使用新 Capture，不能与业务 workspace 共用。
+
+设备完成业务后，为 Flush 准备 `(8 + 2 * 256) * sizeof(uint64_t)` 字节专属 UB，调用 `clock.Flush(trace_output, scratch, 0)`。最后一个参数是可选的业务保留数量；0 表示本接入不使用该字段。
+
+Flush 的 EVENT_ID0（S→MTE3、MTE3→S）必须空闲；仅支持每个逻辑 block 独占一个 AIV 的映射。Host 调用 `trace.Export(root, rank)` 同步所属流、复制原始 uint64 数据，写入独立 launch 目录。关闭时不构造 Capture，使用 `Recorder<false, 256>` 或空宏。
+
+当前仅支持普通 launch；图捕获、跨卡校准、混合 AIC/AIV 和生产并发集成尚未验收。增加容量也会增加设备局部存储和导出 UB 开销，须在目标芯片检查资源与扰动。
+
+## 替换 ascend_deepep
+
+补丁固定适用于 `deepep_ccd` 的 `19c40e99a622c2778c4c5ce94aa1f6adc33effbc`。已在该提交上验证 `git apply --check` 与应用结果；尚未完成目标工程编译/运行。
+
+补丁替换 21 个数字打点，在 URMASendToken 的 while 循环增加 iteration 点，并传递独立 GM 参数。Host 的公开 launch 函数签名保持兼容；旧 duration CSV 导出由新的原始记录导出替代。默认容量 256，可修改补丁中的 `AKL_TRACE_CAPACITY`。
+
+在自己的目标仓检查工作区差异，保留已有修改后执行：
+
+```bash
+export AKL_ROOT=/path/to/ascend-kernel-lab
+git rev-parse HEAD
+git apply --check "$AKL_ROOT/integrations/ascend_deepep-19c40e9.patch"
+git apply "$AKL_ROOT/integrations/ascend_deepep-19c40e9.patch"
+source /usr/local/Ascend/cann/set_env.sh
+export CPLUS_INCLUDE_PATH="$AKL_ROOT/include${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+DEBUG_CLOCK_ON=ON EP_NUM_TOPK_IDX_BITS=32 bash scripts/build.sh
+export DISPATCH_CLOCK_DIR="$PWD/results/semantic-clock"
+# 随后运行你的既有 dispatch 正确性用例，先检查 npu-smi info。
+```
+
+构建命令沿用目标仓 `scripts/build.sh` 的开关。头文件不在目标仓复制，`AKL_ROOT` 应固定到这次核心 PR 的提交。`DEBUG_CLOCK_ON=OFF` 可构建关闭路径。
+
+每次调用会生成 `rankN-pidP-launchL/trace.bin` 和 `capture.json`；原始数据不覆盖旧 launch。保存和分析包含同步及文件 I/O，仅用于诊断，不用它推断未插桩吞吐。
+
+```bash
+PYTHONPATH="$AKL_ROOT/python" python3 -m akl.semantic \
+  "$DISPATCH_CLOCK_DIR/rankN-pidP-launchL" \
+  --source "$PWD/kernels/elastic_dispatch.cpp"
+```
+
+将目录名换成实际输出。生成 `semantic.html`、`semantic.svg`、`semantic.jsonl`、`counts.json`。离线入口只依赖 Python 标准库。
+
+## 阅读与验证
+
+HTML 自包含；色带自上而下对应路径层级，连续父路径合并显示，叶级保留每次命中。可调整显示层数；悬停显示路径、顺序范围、原始 cycle 与差值。表格保留每一次 cycle 和出现次数。
+
+原始 cycle 是 uint64/十进制字符串，不经浮点存储；绘图先用 Python 整数减共同 origin，再缩放。未确认频率时只显示 cycle，不硬编码时间换算；跨核对齐仍标为 unverified。
+
+应用关联测试 PR 后，在本仓运行：
+
+```bash
+python3 -m unittest discover -s tests -v
+mkdir -p results/semantic-cpu
+clang++ -std=c++17 -O2 -Wall -Wextra -Werror -Iinclude -Itests/cpu_stubs \
+  tests/semantic_cpu.cpp -o results/semantic-cpu/check
+results/semantic-cpu/check results/semantic-cpu/captures
+```
+
+C++ 检查使用明确的 CPU API 替身，覆盖真实 Recorder/Capture 的数据协议、循环次数、溢出和关闭路径；不模拟 NPU 流水、时钟域或性能。Python 测试覆盖大整数精度、解析、损坏记录、转义和 HTML 输出。

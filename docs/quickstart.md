@@ -62,7 +62,7 @@ python3 scripts/report.py results/followup
 4. 为Flush准备专属、32B对齐的UB暂存区，大小为 `akl::kWords × 8`。初版容量16个事件、每AIV320B，满时记录dropped。
 5. 业务完成后调用Flush。初版Flush会使用并等待S→MTE3与MTE3→S的EVENT_ID0，调用方必须确保这两个硬事件ID无未完成业务用途。Flush不隐式等待其他业务流水。
 6. Host等待流完成，复制trace buffer再回收。重叠launch/stream使用不同buffer。
-7. 原始ABI解码可复用 `python/akl/trace.py` 的字段检查；当前decode额外验证实验的5个固定事件，接入其他事件表时需新增适配器，不能冒充通用事件分析器已经完成。
+7. 固定实验仍用 `python/akl/trace.py`；多级字符串、循环打点及目标接入补丁使用 [语义打点入口](semantic-trace.md)，该新增入口尚未上板。
 
 所有打点本身不插入barrier；调用方定义发射或完成的含义。当前没有实现多卡时间校准、跨进程统一事件协议或任意事件表GUI。
 
