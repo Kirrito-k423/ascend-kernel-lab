@@ -37,7 +37,7 @@ Flush 的 EVENT_ID0（S→MTE3、MTE3→S）必须空闲；仅支持每个逻辑
 
 设备和 Host 部分均为 header-only；使用仓固定本仓提交，将 `include/` 加入自己的构建路径。无需构建本仓的 micro-benchmark，通用库不携带业务仓补丁。
 
-`ascend_deepep` 的构建依赖、独立 GM 参数和打点替换由它自己的 PR 维护；业务编译/运行步骤以该 PR 说明为准。
+`ascend_deepep` 的构建依赖、独立 GM 参数和打点替换见 [使用仓 PR #20](https://gitcode.com/ChenDonYY/ascend_deepep/merge_requests/20)；业务编译/运行步骤以该 PR 说明为准。
 
 每次 `Capture::Export` 生成独立 `rankN-pidP-launchL/trace.bin` 和 `capture.json`。将下面的路径换成实际采集目录与参与构建的打点源码：
 
