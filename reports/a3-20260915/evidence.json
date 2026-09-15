@@ -1,0 +1,62 @@
+{
+  "a3-matrix-02": {
+    "schema_version": "akl.micro.v1",
+    "soc": "Ascend910_9382",
+    "aiv_count": 48,
+    "ub_bytes": 196608,
+    "clock": {
+      "backend": "GetSystemCycle/SYS_CNT",
+      "frequency_hz": 50000000,
+      "frequency_source": "CANN GetSystemCycle A3 官方文档",
+      "alignment": "unverified",
+      "note": "同设备原始SYS_CNT展示不构成跨核时钟校准"
+    },
+    "library_sha256": "7b82ed8001199ff4a35b2ebe2f0f7a78454aa4c70a78243658eeb1476329493a",
+    "manifest_sha256": "aed2eb675180c47bfa0c416fd1578d16467a660fa179bb1fee8d477545fea4ec",
+    "source_sha256": {
+      "include/akl/params.h": "506f7f59f98f1d49a29f66354121b0ad1899345f31e63fe4c95e82f4fb761fe2",
+      "include/akl/trace/recorder.h": "ccc7b4c4b15264912ac31805028a1726133483a6f5582fecf8b524e0c5bdab8a",
+      "kernels/micro.cpp": "a523d591a62edae7fe7bac2770ca2a9002bc919ca039c8fab48d7154c8b07040",
+      "python/akl/native.py": "63d4215d241a449a418e2525ea2b28d94a8cb1c8871b0f828330689194117b8b",
+      "python/akl/trace.py": "68d2d0aa8d1ff589dc817a6c9a4b875a79c2b8b64516e76722e5c40381899f06",
+      "python/akl/__init__.py": "bcc506fc13b617ac3fa11b3e6ca5a33d4cd177670d48884fa34b6d6e43f831cc",
+      "python/akl/cases.py": "3793abf50ecfdc5b21f7f97aed5e7782408e2284bd15476c529106b9b368acaf",
+      "scripts/run_micro.py": "55576a8355f8e35414f9c121fb137968f9b5727a5f8bb81f03ee60e64a7f501c",
+      "scripts/report.py": "14017ef5ec393ad8d218364178277ae54ce3df445e0fd57920d21e406d66fe9e"
+    },
+    "cases": 78,
+    "launches": 1794,
+    "started_utc": "2026-09-15T07:34:05.571993+00:00",
+    "ended_utc": "2026-09-15T07:34:09.360278+00:00"
+  },
+  "a3-followup-01": {
+    "schema_version": "akl.micro.v1",
+    "soc": "Ascend910_9382",
+    "aiv_count": 48,
+    "ub_bytes": 196608,
+    "clock": {
+      "backend": "GetSystemCycle/SYS_CNT",
+      "frequency_hz": 50000000,
+      "frequency_source": "CANN GetSystemCycle A3 官方文档",
+      "alignment": "unverified",
+      "note": "同设备原始SYS_CNT展示不构成跨核时钟校准"
+    },
+    "library_sha256": "7b82ed8001199ff4a35b2ebe2f0f7a78454aa4c70a78243658eeb1476329493a",
+    "manifest_sha256": "a15be87910de0ca9ac5c290d88dfe05a2c63326acf9caab388d2c8efa7802765",
+    "source_sha256": {
+      "include/akl/params.h": "506f7f59f98f1d49a29f66354121b0ad1899345f31e63fe4c95e82f4fb761fe2",
+      "include/akl/trace/recorder.h": "ccc7b4c4b15264912ac31805028a1726133483a6f5582fecf8b524e0c5bdab8a",
+      "kernels/micro.cpp": "a523d591a62edae7fe7bac2770ca2a9002bc919ca039c8fab48d7154c8b07040",
+      "python/akl/native.py": "63d4215d241a449a418e2525ea2b28d94a8cb1c8871b0f828330689194117b8b",
+      "python/akl/trace.py": "68d2d0aa8d1ff589dc817a6c9a4b875a79c2b8b64516e76722e5c40381899f06",
+      "python/akl/__init__.py": "bcc506fc13b617ac3fa11b3e6ca5a33d4cd177670d48884fa34b6d6e43f831cc",
+      "python/akl/cases.py": "3793abf50ecfdc5b21f7f97aed5e7782408e2284bd15476c529106b9b368acaf",
+      "scripts/run_micro.py": "55576a8355f8e35414f9c121fb137968f9b5727a5f8bb81f03ee60e64a7f501c",
+      "scripts/report.py": "332ac9f0f58b1c33b9f35a58d169eef7312e690bc6c64b98fb63f2dbdb56e493"
+    },
+    "cases": 28,
+    "launches": 1204,
+    "started_utc": "2026-09-15T07:38:11.681073+00:00",
+    "ended_utc": "2026-09-15T07:38:14.889351+00:00"
+  }
+}

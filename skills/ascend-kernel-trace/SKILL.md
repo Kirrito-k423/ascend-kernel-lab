@@ -7,7 +7,14 @@ description: 为真实 Ascend 算子设计、接入和验证独立多核时间�
 
 ## 先确认能力
 
-解析本 skill 符号链接后的真实路径，向上两级定位本仓。阅读 [当前状态](../../README.md)、[打点设计](../../docs/trace-design.md)、[数据契约](../../docs/data-contracts.md)。这是设计先行的仓库；记录器或绘图工具尚未实现时，先完成所需最小实现并验证，不调用臆造的命令，不声称已上板。
+解析本 skill 符号链接后的真实路径，向上两级定位本仓。阅读 [当前状态](../../README.md)、[运行与接入](../../docs/quickstart.md)、[打点设计](../../docs/trace-design.md)、[数据契约](../../docs/data-contracts.md)。A3单卡micro-kernel已完成实测；任意业务事件表和跨核严格校准仍需补齐，不将最小闭环扩大为全面支持。
+
+## 已有执行入口
+
+- 设备记录器：`include/akl/trace/recorder.h`。当前每AIV320B、16事件，Flush需要调用方专属UB及无冲突的EVENT_ID0。
+- 采集：在仓库根目录运行 `python3 scripts/run_micro.py --device 0 --max-cores 48 --samples 10 --warmup 3 --output results/<新运行名>`，先按运行说明编译并确认空闲设备。
+- 分析：`python3 scripts/report.py results/<运行名>`，可在无NPU机器运行。
+- 新目标算子事件表需要新增解析适配；现有解码器会严格检查实验的5个事件，不能直接用于任意事件序列。
 
 ## 工作流程
 
