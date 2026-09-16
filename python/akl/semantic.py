@@ -217,13 +217,22 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("capture", type=Path)
+    parser.add_argument("capture", type=Path, help="单次采集目录，或含多个 rank*-pid*-launch* 的父目录")
+    parser.add_argument("--output", type=Path, help="批量汇总目录，默认 <父目录>/result")
     parser.add_argument("--source", type=Path, nargs="+", required=True, help="编译所用的语义打点源码")
     parser.add_argument("--clock-mhz", type=float, help="用户确认的 cycle 时钟频率（MHz），用于 µs 刻度")
     parser.add_argument("--cycle-range", type=int, nargs=2, metavar=("START", "END"),
                         help="相对共同 origin 的 cycle 窗口；HTML 初始视图和 SVG 导出范围")
     args = parser.parse_args()
-    meta, events, warnings = decode_capture(args.capture, event_map(args.source))
+    mapping = event_map(args.source)
+    if not (args.capture / "capture.json").is_file():
+        from .batch import export_batch
+        failed = export_batch(args.capture, args.output or args.capture / "result", mapping,
+                              args.source, args.clock_mhz, args.cycle_range)
+        raise SystemExit(1 if failed else 0)
+    if args.output:
+        parser.error("--output 仅用于父目录批量分析")
+    meta, events, warnings = decode_capture(args.capture, mapping)
     render(args.capture, meta, events, warnings, args.clock_mhz, args.cycle_range)
     print(f"已导出 {len(events)} 个原始事件；{len(warnings)} 个丢弃告警；{args.capture / 'semantic.html'}")
 
