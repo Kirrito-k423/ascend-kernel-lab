@@ -64,6 +64,15 @@ class Semantic(unittest.TestCase):
         self.assertIn("0.013", text)
         self.assertIn("clock MHz=1000", text)
         self.assertEqual(original, (self.root / "semantic.jsonl").read_bytes())
+        render(self.root, meta, events, warnings, cycle_range=(1, 2))
+        svg = ET.parse(self.root / "semantic.svg").getroot()
+        short = svg.find(".//{*}g[@data-start='1'][@data-level='3']/{*}rect")
+        self.assertEqual(float(short.get("width")), 1040)
+        self.assertIn("cycle=1152921504606846977", ''.join(svg.itertext()))
+        self.assertEqual(original, (self.root / "semantic.jsonl").read_bytes())
+        for window in ((-1, 2), (2, 2), (0, 14)):
+            with self.assertRaises(ValueError):
+                render(self.root, meta, events, warnings, cycle_range=window)
         for value in (0, -1, float('nan'), float('inf')):
             with self.assertRaises(ValueError):
                 render(self.root, meta, events, warnings, clock_mhz=value)
