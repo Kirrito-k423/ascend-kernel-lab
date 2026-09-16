@@ -4,6 +4,7 @@ import struct
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
 
@@ -45,6 +46,39 @@ class Semantic(unittest.TestCase):
         self.assertEqual([s["count"] for s in counts["counts"]], [4, 4])
         self.assertEqual(len((self.root / "semantic.jsonl").read_text().splitlines()), 8)
         self.assertIn('data-level="3"', (self.root / "semantic.html").read_text())
+
+    def test_time_axis_and_compact_svg(self):
+        self.capture()
+        meta, events, warnings = decode_capture(self.root, self.mapping)
+        render(self.root, meta, events, warnings)
+        original = (self.root / "semantic.jsonl").read_bytes()
+        svg = ET.parse(self.root / "semantic.svg").getroot()
+        self.assertIn(str(2**60), ''.join(svg.itertext()))
+        self.assertNotIn("µs", ''.join(svg.itertext()))
+        self.assertIn("13", [e.text for e in svg.iter()])
+        lanes = svg.findall("{*}g[@class='lane']")
+        self.assertEqual([g.get('transform') for g in lanes],
+                         ['translate(0,72)', 'translate(0,144)'])
+        render(self.root, meta, events, warnings, clock_mhz=1000)
+        text = ''.join(ET.parse(self.root / "semantic.svg").getroot().itertext())
+        self.assertIn("0.013", text)
+        self.assertIn("clock MHz=1000", text)
+        self.assertEqual(original, (self.root / "semantic.jsonl").read_bytes())
+        for value in (0, -1, float('nan'), float('inf')):
+            with self.assertRaises(ValueError):
+                render(self.root, meta, events, warnings, clock_mhz=value)
+
+    def test_repeated_rulers_and_empty_lanes(self):
+        self.capture()
+        meta, events, warnings = decode_capture(self.root, self.mapping)
+        meta['blocks'] = 17  # 其余 lane 为空，仍保留共同横坐标和紧凑布局。
+        render(self.root, meta, events, warnings)
+        svg = ET.parse(self.root / "semantic.svg").getroot()
+        self.assertEqual(len(svg.findall("{*}g[@class='ruler']")), 3)
+        self.assertEqual(len(svg.findall("{*}g[@class='lane']")), 17)
+        events = [dict(events[0])]
+        render(self.root, meta, events, warnings)
+        ET.parse(self.root / "semantic.svg")  # 零跨度也产生合法 SVG。
 
     def test_overflow_is_visible(self):
         self.capture(dropped=7)
