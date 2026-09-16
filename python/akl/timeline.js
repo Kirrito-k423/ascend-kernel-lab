@@ -1,13 +1,40 @@
 // 坐标只用相对差值转 Number；时间窗口及绝对 cycle 始终保留 BigInt。
 const timeline = document.getElementById('timeline'), cursor = document.getElementById('cursor');
 const origin = BigInt(timeline.dataset.origin), extent = BigInt(timeline.dataset.extent);
-const mhz = Number(timeline.dataset.mhz) || null, maxDepth = Number(document.getElementById('depth').max);
+const maxDepth = Number(document.getElementById('depth').max);
+const laneData = JSON.parse(document.getElementById('lane-data').textContent);
+let cycleUs = Number(document.getElementById('cycle-us').value), unit = 'cycle';
 let left = BigInt(timeline.dataset.left), right = BigInt(timeline.dataset.right), depth = maxDepth;
-let pinned = false, cursorTick = null, drag = null;
-const segments = [...timeline.querySelectorAll('[data-start]')].map(g => ({
-    g, start: BigInt(g.dataset.start), end: BigInt(g.dataset.end),
-    rect: g.querySelector('rect'), label: g.querySelector('text')
-}));
+let pinned = false, cursorTick = null, drag = null, selected = [], segments = [];
+const formatUs = ticks => (Number(ticks)*cycleUs).toLocaleString('en-US',{useGrouping:false,maximumSignificantDigits:12});
+function tables() {
+    for(const [id,key] of [['counts','counts'],['events','rows']])
+        document.getElementById(id+'-body').innerHTML = document.getElementById(id+'-detail').open ? selected.map(b=>laneData[b][key]).join('') : '';
+}
+function layout() {
+    timeline.querySelectorAll('.lane').forEach((g,i)=>g.setAttribute('transform',`translate(0,${8+i*(depth*16+8)})`));
+    timeline.setAttribute('viewBox',`0 0 1180 ${8+selected.length*(depth*16+8)}`);
+}
+function selectBlocks() {
+    try {
+        const blocks = new Set();
+        for(const part of document.getElementById('blocks').value.split(',')) {
+            const match = part.trim().match(/^(\d+)(?:-(\d+))?$/);
+            if(!match) throw Error();
+            const a=Number(match[1]), b=Number(match[2]??match[1]);
+            if(a>b || b>=laneData.length) throw Error();
+            for(let n=a;n<=b;n++) blocks.add(n);
+        }
+        selected=[...blocks].sort((a,b)=>a-b);
+        document.getElementById('lanes').innerHTML=selected.map(b=>`<g class="lane" data-block="${b}">${laneData[b].svg}</g>`).join('');
+        segments=[...timeline.querySelectorAll('[data-start]')].map(g=>({
+            g,start:BigInt(g.dataset.start),end:BigInt(g.dataset.end),rect:g.querySelector('rect'),label:g.querySelector('text'),
+            title:g.querySelector('title'),base:g.querySelector('title').textContent.replace(/ \| Δµs=.*$/,'')
+        }));
+        layout(); tables(); draw();
+        document.getElementById('block-status').textContent=`已绘制 ${selected.length} / ${laneData.length} 个 block`;
+    } catch {document.getElementById('block-status').textContent=`请输入 0…${laneData.length-1} 内的编号或范围，例如 0-7,16`;}
+}
 const selection = document.getElementById('selection');
 const min = (a,b) => a < b ? a : b, max = (a,b) => a > b ? a : b;
 const xAt = tick => 100 + 1040 * Number(tick-left) / Number(right-left);
@@ -23,18 +50,16 @@ function showCursor() {
     cursor.setAttribute('x1',xAt(cursorTick)); cursor.setAttribute('x2',xAt(cursorTick));
     document.getElementById('readout').textContent=(pinned?'已固定':'鼠标估计')+
         ' · Δcycle≈'+cursorTick+' · cycle≈'+(origin+cursorTick)+
-        (mhz?' · Δµs≈'+(Number(cursorTick)/mhz).toFixed(3):'');
+        ' · Δµs≈'+formatUs(cursorTick);
 }
 function draw() {
-    let ruler='<rect width="1180" height="40" fill="white"/><text x="8" y="16">Δcycle</text>';
-    if(mhz) ruler+='<text x="8" y="32">µs</text>';
+    let ruler=`<rect width="1180" height="40" fill="white"/><text x="8" y="16">${unit==='cycle'?'Δcycle':'Δµs'}</text>`;
     const ticks = [...new Set(Array.from({length:6},(_,i)=>left+(right-left)*BigInt(i)/5n))];
     document.querySelector('#grid').innerHTML = ticks.map(t =>
         `<line x1="${xAt(t)}" x2="${xAt(t)}" y1="0" y2="100%" stroke="#cbd5e1" stroke-dasharray="2 3"/>`).join('');
     for(const t of ticks) {
         const x=xAt(t), anchor=t===left?'start':t===right?'end':'middle';
-        ruler+=`<path d="M${x},35 v5" stroke="#64748b"/><text x="${x}" y="16" text-anchor="${anchor}">${t}</text>`;
-        if(mhz) ruler+=`<text x="${x}" y="32" text-anchor="${anchor}">${(Number(t)/mhz).toFixed(3)}</text>`;
+        ruler+=`<path d="M${x},35 v5" stroke="#64748b"/><text x="${x}" y="16" text-anchor="${anchor}">${unit==='cycle'?t:formatUs(t)}</text>`;
     }
     document.getElementById('axis').innerHTML=ruler;
     for(const s of segments) {
@@ -45,6 +70,7 @@ function draw() {
         s.rect.setAttribute('x',x); s.rect.setAttribute('width',width);
         s.label.setAttribute('x',x+3);
         s.label.textContent=s.g.dataset.label.slice(0,Math.max(0,Math.floor(width/9)-1));
+        s.title.textContent=s.base+' | Δµs='+formatUs(s.end-s.start);
     }
     document.getElementById('from').value=left; document.getElementById('to').value=right;
     document.getElementById('window').textContent='窗口 Δcycle '+left+'…'+right+'（跨度 '+(right-left)+'）';
@@ -104,8 +130,18 @@ timeline.addEventListener('pointerup',e=>{
 timeline.addEventListener('pointercancel',()=>{drag=null;selection.setAttribute('visibility','hidden');});
 document.getElementById('depth').oninput=e=>{
     depth=Math.max(1,Math.min(maxDepth,Math.trunc(Number(e.target.value)||1)));
-    timeline.querySelectorAll('.lane').forEach((r,b)=>r.setAttribute('transform',`translate(0,${8+b*(depth*16+8)})`));
-    timeline.setAttribute('viewBox',`0 0 1180 ${8+timeline.querySelectorAll('.lane').length*(depth*16+8)}`);
-    draw();
+    layout(); draw();
 };
-draw();
+document.getElementById('cycle-us').oninput=e=>{
+    const value=Number(e.target.value);
+    if(!Number.isFinite(value) || value<=0 || !Number.isFinite(Number(extent)*value)) {
+        document.getElementById('conversion').textContent='请输入有限正数，已保留上次有效换算';return;
+    }
+    cycleUs=value;
+    document.getElementById('conversion').textContent='当前显示换算：1 cycle = '+cycleUs+' µs';draw();
+};
+document.getElementById('unit').onchange=e=>{unit=e.target.value;draw();};
+document.getElementById('apply-blocks').onclick=selectBlocks;
+document.getElementById('all-blocks').onclick=()=>{document.getElementById('blocks').value='0-'+(laneData.length-1);selectBlocks();};
+for(const id of ['counts','events']) document.getElementById(id+'-detail').ontoggle=tables;
+selectBlocks();
