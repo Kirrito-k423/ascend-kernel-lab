@@ -56,6 +56,18 @@ HTML 自包含；色带自上而下对应路径层级，连续父路径合并显
 
 HTML 顶部时间刻度在图内滚动时保持可见，鼠标对齐线贯穿所有 block；单击固定，再次单击解除。读数同时显示相对 Δcycle 与绝对 cycle，鼠标位置标为插值估计。SVG 每 8 个 block 重复刻度，并使用共同纵向网格。
 
+横向缩放仅改变时间窗口：Ctrl/⌘＋滚轮以鼠标位置为中心缩放，拖拽框选放大；Shift＋拖拽或滚轮平移，也可使用放大、缩小、左右平移、全范围按钮。起点/终点输入框支持精确到 1 cycle 的窗口，值为相对共同 origin 的 Δcycle。缩放后完整语义标签会重新展开；层级折叠与悬浮刻度继续生效。
+
+短段最小显示 1px 标记并优先绘制，避免被相邻长段遮住；标记宽度不代表真实耗时，真实值见悬停读数。很多短段挤在同一像素时，仍需放大或输入精确范围逐项查看。静态 SVG 可使用同一窗口参数单独导出，例如：
+
+```bash
+PYTHONPATH="$AKL_ROOT/python" python3 -m akl.semantic \
+  /path/to/results/rankN-pidP-launchL --source /path/to/kernel.cpp \
+  --cycle-range 1200 1201
+```
+
+`--cycle-range START END` 同时设置 HTML 初始窗口与 SVG 导出范围，要求 `0 ≤ START < END ≤ 总跨度`；省略时显示全范围。HTML 内仍可恢复全范围，原始 JSONL 与次数统计保持完整。重新分析会覆盖该采集目录的派生图表。
+
 默认仅显示 cycle。确认 cycle 时钟频率后，可给离线命令增加 `--clock-mhz <实际MHz>`，在同一轴上增加 µs 刻度和悬停耗时；换算公式为 `µs = Δcycle / MHz`，不会修改原始记录或自动校准时钟。例如 `--clock-mhz 1000` 仅适用于已确认频率为 1000 MHz 的情况，不是默认硬件频率。
 
 升级分析脚本后，可直接重新处理已有 `trace.bin`/`capture.json`，不需要重新编译 kernel 或重新采集。
