@@ -93,20 +93,24 @@ def decode_capture(folder, mapping):
     return meta, events, warnings
 
 
-def render(folder, meta, events, warnings, clock_mhz=None):
+def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
     if clock_mhz is not None and (not math.isfinite(clock_mhz) or clock_mhz <= 0):
         raise ValueError("clock MHz 必须是有限正数")
     origin = min(int(e["tick"]) for e in events)
     extent = max(int(e["tick"]) - origin for e in events) or 1
+    left, right = cycle_range if cycle_range is not None else (0, extent)
+    if any(type(v) is not int for v in (left, right)) or not 0 <= left < right <= extent:
+        raise ValueError(f"cycle 范围须满足 0 <= 起点 < 终点 <= {extent}")
+    span = right - left
     depth = max(len(e["path"]) for e in events)
     stride = depth * 16 + 8
-    ticks = sorted({extent * i // 5 for i in range(6)})
-    positions = [100 + 1040 * tick / extent for tick in ticks]
+    ticks = sorted({left + span * i // 5 for i in range(6)})
+    positions = [100 + 1040 * (tick-left) / span for tick in ticks]
     ruler = ['<rect width="1180" height="40" fill="#fff"/>', '<text x="8" y="16">Δcycle</text>']
     if clock_mhz is not None:
         ruler.append('<text x="8" y="32">µs</text>')
     for tick, x in zip(ticks, positions):
-        anchor = "start" if tick == 0 else "end" if tick == extent else "middle"
+        anchor = "start" if tick == left else "end" if tick == right else "middle"
         ruler.append(f'<path d="M{x},35 v5" stroke="#64748b"/>'
                      f'<text x="{x}" y="16" text-anchor="{anchor}">{tick:,}</text>')
         if clock_mhz is not None:
@@ -115,7 +119,7 @@ def render(folder, meta, events, warnings, clock_mhz=None):
     rows, lanes = [], []
     for block in range(meta["blocks"]):
         lane = [e for e in events if e["block"] == block]
-        svg = [f'<text x="8" y="12">block {block}</text>']
+        svg = []
         for level in range(depth):
             # 只合并连续的父路径；叶子保留每次命中，循环边界不消失。
             def group_key(item):
@@ -132,17 +136,24 @@ def render(folder, meta, events, warnings, clock_mhz=None):
                 title = html.escape(f'{" / ".join(prefix)} | seq={first}…{last} | '
                                     f'cycle={origin+start} → {origin+end} | Δcycle={end-start}'
                                     + (f' | Δµs={(end-start)/clock_mhz:.3f}' if clock_mhz else ''))
-                x, width = 100 + 1040 * start / extent, 1040 * (end-start) / extent
+                visible = (left <= start <= right) if start == end else (end > left and start < right)
+                x = 100 + 1040 * max(0, start-left) / span
+                width = 1040 * max(0, min(end, right)-max(start, left)) / span
                 hue = path_hash(prefix[:1]) % 360
                 light = min(86, 40 + level * 10 + path_hash(prefix) % 8)
                 saturation = 40 + path_hash(prefix) % 35
                 color = f'hsl({hue} {saturation}% {light}%)'
+                # 1px 仅作短区间可见性标记；真实时长保留在 title，完整标签供缩放后恢复。
                 label = html.escape(prefix[-1][:max(0, int(width/9)-1)])
-                svg.append(f'<g data-level="{level}"><title>{title}</title>'
+                svg.append((end-start, f'<g data-level="{level}" data-start="{start}" data-end="{end}" '
+                           f'data-label="{html.escape(prefix[-1], quote=True)}"'
+                           + ('' if visible else ' style="display:none"') + f'><title>{title}</title>'
                            f'<rect x="{x}" y="{level*16}" width="{max(width, 1)}" height="14" '
-                           f'fill="{color}" stroke="white" stroke-width="0.5"/>'
-                           f'<text x="{x+3}" y="{level*16+11}" font-size="11">{label}</text></g>')
-        lanes.append(''.join(svg))
+                           f'fill="{color}" stroke="white" stroke-width="0"/>'
+                           f'<text x="{x+3}" y="{level*16+11}" font-size="11">{label}</text></g>'))
+        # 短段后画，避免其最小宽度标记被相邻长段遮住。
+        lanes.append(f'<text x="8" y="12">block {block}</text>'
+                     + ''.join(markup for _, markup in sorted(svg, key=lambda item: -item[0])))
         for event in lane:
             rows.append(f'<tr><td>{block}/{event["subblock"]}</td><td>{event["sequence"]}</td><td>{event["occurrence"]}</td>'
                         f'<td>{event["tick"]}</td><td>{html.escape(" / ".join(event["path"]))}</td></tr>')
@@ -156,7 +167,7 @@ def render(folder, meta, events, warnings, clock_mhz=None):
     # SVG 是静态导出：每 8 个 block 重复刻度；HTML 单独使用可悬浮的共同刻度。
     clock_label = f"; clock MHz={clock_mhz:g}" if clock_mhz else ""
     static = [grid, '<rect width="1180" height="24" fill="white"/>',
-              f'<text x="8" y="17">origin cycle={origin}{clock_label}; alignment UNVERIFIED</text>']
+              f'<text x="8" y="17">origin cycle={origin}{clock_label}; Δcycle window={left}…{right}; alignment UNVERIFIED</text>']
     for block, lane in enumerate(lanes):
         y = 24 + block * stride + (block // 8 + 1) * 40
         if block % 8 == 0:
@@ -171,43 +182,29 @@ def render(folder, meta, events, warnings, clock_mhz=None):
     totals = ''.join(f'<tr><td>{s["block"]}/{s["subblock"]}</td><td>{s["count"]}</td>'
                      f'<td>{html.escape(" / ".join(s["path"]))}</td></tr>' for s in summary)
     page = f'''<!doctype html><html lang="zh"><meta charset="utf-8"><title>语义 cycle 时间线</title>
-<style>body{{font:14px system-ui;margin:20px;color:#183047}}svg{{display:block;width:100%}}.chart{{overflow:auto;max-height:72vh;border:1px solid #cbd5e1}}.canvas{{min-width:900px}}.ruler{{position:sticky;top:0;z-index:1;background:white;border-bottom:1px solid #cbd5e1}}output{{display:block;padding:4px 8px;font:12px ui-monospace,monospace;min-height:18px}}td,th{{padding:4px 8px;text-align:left;border-bottom:1px solid #ddd}}input{{width:60px}}.controls{{margin:12px 0}}details{{margin-top:18px}}</style>
+<style>body{{font:14px system-ui;margin:20px;color:#183047}}svg{{display:block;width:100%}}.chart{{overflow:auto;max-height:72vh;border:1px solid #cbd5e1}}.canvas{{min-width:900px}}.ruler{{position:sticky;top:0;z-index:1;background:white;border-bottom:1px solid #cbd5e1}}output{{display:block;padding:4px 8px;font:12px ui-monospace,monospace;min-height:18px}}td,th{{padding:4px 8px;text-align:left;border-bottom:1px solid #ddd}}input{{width:60px}}.controls{{margin:12px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}}#from,#to{{width:120px}}#timeline{{user-select:none;touch-action:pan-y}}details{{margin-top:18px}}</style>
 <h1>语义 cycle 时间线 · rank {meta['rank']} / device {meta['device']}</h1>
 <p>共同原始起点 {origin}；范围 Δcycle=0…{extent}；跨核对齐未验证。{warning}</p>
 <p>每段表示该打点至下一个打点，末点仅作标记。移动鼠标对齐各 block，单击固定对齐线，再次单击解除。</p>
+<div class="controls">
+<button id="zoom-in">＋ 放大</button><button id="zoom-out">− 缩小</button>
+<button id="pan-left">← 平移</button><button id="pan-right">平移 →</button><button id="reset">全范围</button>
+<label>起点 Δcycle <input id="from" type="text" inputmode="numeric" value="{left}"></label>
+<label>终点 Δcycle <input id="to" type="text" inputmode="numeric" value="{right}"></label><button id="apply">应用范围</button>
+<span id="window"></span></div>
+<p>Ctrl/⌘＋滚轮以鼠标位置缩放；拖拽框选放大；Shift＋拖拽或滚轮平移。短段最小显示 1px，精确时长见悬停读数。</p>
 <div class="controls"><label>显示前 <input id="depth" type="number" min="1" max="{depth}" value="{depth}"> 级</label>
  · {f'按用户指定的 {clock_mhz:g} MHz 换算 µs' if clock_mhz else '刻度单位 cycle；提供 --clock-mhz 可增加 µs 刻度'}</div>
-<div class="chart" tabindex="0" role="region" aria-label="block 时间线"><div class="canvas"><div class="ruler">{svg_open}viewBox="0 0 1180 40">{ruler}</svg>
+<div class="chart" tabindex="0" role="region" aria-label="block 时间线"><div class="canvas"><div class="ruler">{svg_open}id="axis" viewBox="0 0 1180 40">{ruler}</svg>
 <output id="readout" aria-live="off">移动鼠标读取 cycle</output></div>
-{svg_open}id="timeline" viewBox="0 0 1180 {height}">{grid}{bands}
+{svg_open}id="timeline" data-origin="{origin}" data-extent="{extent}" data-mhz="{clock_mhz or ''}" data-left="{left}" data-right="{right}" viewBox="0 0 1180 {height}"><g id="grid">{grid}</g>{bands}
+<rect id="selection" y="0" height="100%" fill="#2563eb" opacity="0.15" pointer-events="none" visibility="hidden"/>
 <line id="cursor" x1="100" x2="100" y1="0" y2="100%" stroke="#0f172a" stroke-width="1" pointer-events="none" visibility="hidden"/></svg>
 </div></div><details><summary>打点次数（仅统计保留记录）</summary>
 <table><tr><th>block/subblock</th><th>次数</th><th>语义路径</th></tr>{totals}</table></details>
 <details><summary>原始绝对 cycle（整数）</summary>
 <table><tr><th>block/subblock</th><th>序号</th><th>该点第几次</th><th>cycle</th><th>语义路径</th></tr>{''.join(rows)}</table></details>
-<script>
-const timeline=document.getElementById('timeline'), cursor=document.getElementById('cursor');
-const origin=BigInt('{origin}'), extent=BigInt('{extent}'), mhz={json.dumps(clock_mhz)};
-let pinned=false;
-function locate(e) {{
-    const p=new DOMPoint(e.clientX,e.clientY).matrixTransform(timeline.getScreenCTM().inverse());
-    const fraction=Math.max(0,Math.min(1,(p.x-100)/1040));
-    const x=100+1040*fraction;
-    cursor.setAttribute('x1',x); cursor.setAttribute('x2',x); cursor.setAttribute('visibility','visible');
-    // 绝对 cycle 全程用 BigInt；鼠标位置是插值估计，不能先把原始 tick 转成 Number。
-    const delta=extent*BigInt(Math.round(fraction*1000000))/1000000n;
-    document.getElementById('readout').textContent=(pinned?'已固定':'鼠标估计')+
-        ' · Δcycle≈'+delta+' · cycle≈'+(origin+delta)+(mhz?' · Δµs≈'+(Number(delta)/mhz).toFixed(3):'');
-}}
-timeline.addEventListener('pointermove',e=>{{if(!pinned) locate(e);}});
-timeline.addEventListener('click',e=>{{pinned=!pinned; locate(e);}});
-document.getElementById('depth').oninput=e=>{{
-    const n=Math.max(1,Math.min({depth},Math.trunc(Number(e.target.value)||1)));
-    timeline.querySelectorAll('[data-level]').forEach(r=>r.style.display=Number(r.dataset.level)<n?'':'none');
-    timeline.querySelectorAll('.lane').forEach((r,b)=>r.setAttribute('transform',`translate(0,${{8+b*(n*16+8)}})`));
-    timeline.setAttribute('viewBox',`0 0 1180 ${{8+{meta['blocks']}*(n*16+8)}}`);
-}};
-</script></html>'''
+<script>{Path(__file__).with_name('timeline.js').read_text()}</script></html>'''
     (folder / "semantic.html").write_text(page)
     (folder / "semantic.svg").write_text(drawing)
     with (folder / "semantic.jsonl").open("w") as out:
@@ -223,9 +220,11 @@ def main():
     parser.add_argument("capture", type=Path)
     parser.add_argument("--source", type=Path, nargs="+", required=True, help="编译所用的语义打点源码")
     parser.add_argument("--clock-mhz", type=float, help="用户确认的 cycle 时钟频率（MHz），用于 µs 刻度")
+    parser.add_argument("--cycle-range", type=int, nargs=2, metavar=("START", "END"),
+                        help="相对共同 origin 的 cycle 窗口；HTML 初始视图和 SVG 导出范围")
     args = parser.parse_args()
     meta, events, warnings = decode_capture(args.capture, event_map(args.source))
-    render(args.capture, meta, events, warnings, args.clock_mhz)
+    render(args.capture, meta, events, warnings, args.clock_mhz, args.cycle_range)
     print(f"已导出 {len(events)} 个原始事件；{len(warnings)} 个丢弃告警；{args.capture / 'semantic.html'}")
 
 
