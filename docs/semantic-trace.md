@@ -50,6 +50,24 @@ PYTHONPATH="$AKL_ROOT/python" python3 -m akl.semantic \
 
 生成 `semantic.html`、`semantic.svg`、`semantic.jsonl`、`counts.json`。离线入口只依赖 Python 标准库；不同 launch 的原始数据不覆盖，分析时使用与构建一致的源码。
 
+## 多 rank、多次执行：父目录批量分析
+
+采集完成后直接传入 `DISPATCH_CLOCK_DIR`，无需循环拼接每个 launch 路径：
+
+```bash
+PYTHONPATH="$AKL_ROOT/python" python3 -m akl.semantic \
+  "$DISPATCH_CLOCK_DIR" --source /path/to/kernel.cpp
+# 可加 --output /path/to/experiment-result，默认输出到 <父目录>/result。
+```
+
+递归识别 `rank*-pid*-launch*`，每个有效采集目录仍生成 HTML/SVG/JSONL/counts；另生成 `result/index.html`，按 rank 筛选、在汇总统计和单次时间线间切换，并按 PID/launch 选择采集。汇总包括每 rank 成功/失败数、丢弃告警、事件数、核内首末跨度，以及各语义点的命中次数和到下一点的 cycle 差值 min/mean/max。末点没有后继，不纳入区间耗时；均值按有效区间数加权。跨 rank 时钟不对齐，进程内 launch 编号不自动视为跨 rank 的实验轮次。
+
+`result/result.zip` 可单独下载，解压后打开 `result/index.html`；也可完整拷走 result 目录。包内包含各次原始 trace.bin/capture.json、HTML/SVG/JSONL/counts、全部事件 events.jsonl、汇总 summary.json、事件映射和源码快照。页面无需网络或本地服务器，只加载选中的时间线；解压包不再嵌套一份自身 ZIP。
+
+批量处理按相对路径区分不同实验子目录中的同名 launch；重复分析不会扫描既有汇总包。损坏/缺失采集被记录为失败，并保留可复制的原始文件；其他采集继续导出，有失败时最终退出码为 1。报告只统计实际发现的采集，不猜测缺失的 rank 或轮次。已有 result 只有被识别为本工具报告时才整体替换，其他目录会拒绝覆盖。
+
+`--clock-mhz` 和 `--cycle-range` 对每个采集分别生效；若指定窗口超出某次跨度，该采集会标记失败。批量同样要求全部采集使用与 `--source` 一致的打点源码。
+
 ## 阅读与验证
 
 HTML 自包含；色带自上而下对应路径层级，连续父路径合并显示，叶级保留每次命中。可调整显示层数，隐藏层级后会同步压缩 block 高度；默认四级 block 间距为 72，比原版 118 减少约 39%。悬停显示路径、顺序范围、原始 cycle 与差值。表格保留每一次 cycle 和出现次数，默认折叠。
