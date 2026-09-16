@@ -2,9 +2,10 @@
 #include "akl/trace/recorder.h"
 
 namespace akl {
-constexpr uint32_t PathHash(uint32_t hash) { return hash; }
-template<typename... Tail>
-constexpr uint32_t PathHash(uint32_t hash, const char* part, Tail... tail) {
+__aicore__ constexpr uint32_t PathHash(uint32_t hash) { return hash; }
+template<typename Char, typename... Tail>
+__aicore__ constexpr uint32_t PathHash(uint32_t hash, const Char* part, Tail... tail) {
+    // 保留 Bisheng 字符串字面量的 __gm__ 地址空间；不能强转为普通 char*。
     // FNV-1a 的 uint32 回绕是协议的一部分；每级追加 NUL，区分 [ab,c] 与 [a,bc]。
     for (; *part; ++part) hash = (hash ^ static_cast<unsigned char>(*part)) * 16777619u;
     return PathHash(hash * 16777619u, tail...);
