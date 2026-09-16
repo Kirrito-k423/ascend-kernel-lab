@@ -7,7 +7,8 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
-#include <vector>
+#include <memory>
+#include <cstring>
 #include <unistd.h>
 
 namespace akl {
@@ -35,8 +36,29 @@ public:
     uint8_t* Data() const { return static_cast<uint8_t*>(data_); }
     void Export(const std::filesystem::path& root, uint32_t rank) {
         Check(aclrtSynchronizeStream(stream_));
-        std::vector<uint64_t> raw(bytes_ / sizeof(uint64_t));
-        Check(aclrtMemcpy(raw.data(), bytes_, data_, bytes_, ACL_MEMCPY_DEVICE_TO_HOST));
+        // ACL 页锁定内存避免普通 vector 的 pageable D2H 暂存拷贝；异常路径也释放。
+        void* host = nullptr;
+        Check(aclrtMallocHost(&host, bytes_));
+        std::unique_ptr<void, decltype(&aclrtFreeHost)> owner(host, aclrtFreeHost);
+        auto raw = static_cast<uint64_t*>(host);
+        Check(aclrtMemcpy(raw, bytes_, data_, bytes_, ACL_MEMCPY_DEVICE_TO_HOST));
+        // ABI 仍为定长行，仅缩短所有 block 都未使用的尾部槽位。
+        // 缺失/损坏行保留完整原始 buffer，交给离线校验报告，不能掩盖采集失败。
+        uint32_t kept = 0;
+        for (uint32_t b = 0; b < blocks_; ++b) {
+            const auto* row = raw + size_t(b) * words;
+            if (row[0] != kMagic || row[1] != 1 || row[7] != 1 || row[4] != b || row[2] > Capacity) {
+                kept = Capacity;
+                break;
+            }
+            if (row[2] > kept) kept = static_cast<uint32_t>(row[2]);
+        }
+        // 向上取偶数（21→22），至少 2 个槽，保持正偶数容量和 32B 行对齐。
+        const uint32_t stored = kept ? (kept + 1) & ~1u : 2;
+        const size_t storedWords = 8 + 2 * stored;
+        // 顺序向前紧凑排列，源/目标可能重叠，必须用 memmove。
+        if (stored < Capacity) for (uint32_t b = 1; b < blocks_; ++b)
+            std::memmove(raw + size_t(b) * storedWords, raw + size_t(b) * words, storedWords * 8);
         static std::atomic<uint64_t> sequence{0};
         std::filesystem::create_directories(root);
         std::filesystem::path folder;
@@ -44,8 +66,8 @@ public:
             folder = root / ("rank" + std::to_string(rank) + "-pid" + std::to_string(getpid()) +
                 "-launch" + std::to_string(sequence.fetch_add(1)));
         } while (!std::filesystem::create_directory(folder));
-        Write(folder / "trace.bin", reinterpret_cast<const char*>(raw.data()), bytes_);
-        const auto metadata = "{\"schema\":\"akl.semantic.v1\",\"capacity\":" + std::to_string(Capacity) +
+        Write(folder / "trace.bin", reinterpret_cast<const char*>(raw), size_t(blocks_) * storedWords * 8);
+        const auto metadata = "{\"schema\":\"akl.semantic.v1\",\"capacity\":" + std::to_string(stored) + ",\"recorder_capacity\":" + std::to_string(Capacity) +
             ",\"blocks\":" + std::to_string(blocks_) + ",\"rank\":" + std::to_string(rank) +
             ",\"device\":" + std::to_string(device_) + ",\"alignment\":\"unverified\"}";
         Write(folder / "capture.json", metadata.data(), metadata.size());
