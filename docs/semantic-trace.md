@@ -86,11 +86,13 @@ PYTHONPATH="$AKL_ROOT/python" python3 -m akl.semantic \
 
 `--cycle-range START END` 同时设置 HTML 初始窗口与 SVG 导出范围，要求 `0 ≤ START < END ≤ 总跨度`；省略时显示全范围。HTML 内仍可恢复全范围，原始 JSONL 与次数统计保持完整。重新分析会覆盖该采集目录的派生图表。
 
-默认仅显示 cycle。确认 cycle 时钟频率后，可给离线命令增加 `--clock-mhz <实际MHz>`，在同一轴上增加 µs 刻度和悬停耗时；换算公式为 `µs = Δcycle / MHz`，不会修改原始记录或自动校准时钟。例如 `--clock-mhz 1000` 仅适用于已确认频率为 1000 MHz 的情况，不是默认硬件频率。
+HTML 可以编辑 `1 cycle = … µs`，默认 `0.001 µs`；坐标轴下拉菜单在 cycle/µs 间切换，刻度、鼠标读数和悬停耗时随换算更新。若传入 `--clock-mhz <实际MHz>`，HTML 初始换算为 `1 / MHz`。默认换算是显示设置，不代表测得或校准的芯片时钟；原始绝对 cycle 和横向 cycle 窗口不变。静态 SVG 仍仅在指定 `--clock-mhz` 时增加 µs 刻度。
+
+为减少 64 block 的浏览器负担，HTML 默认只绘制前 8 个 block。Block 输入框支持 `0-7,16,32-39`，点击“显示所选 block”生效，也可一键显示全部；编号保留原值，选中的行紧凑排列。未选中的 block 不创建图形节点；统计和原始记录表仅在展开时创建所选 block 的行，收起时释放。全部数据仍保留在 HTML 数据区与 JSONL/counts 中；独立 SVG 导出也保持完整 block 范围。
 
 升级分析脚本后，可直接重新处理已有 `trace.bin`/`capture.json`，不需要重新编译 kernel 或重新采集。
 
-原始 cycle 是 uint64/十进制字符串，不经浮点存储；绘图先用 Python 整数减共同 origin，再缩放。未确认频率时只显示 cycle，不硬编码时间换算；跨核对齐仍标为 unverified。
+原始 cycle 是 uint64/十进制字符串，不经浮点存储；绘图先用 Python 整数减共同 origin，再缩放。µs 按用户配置换算，原始 cycle 不变；跨核对齐仍标为 unverified。
 
 应用关联测试 PR 后，在本仓运行：
 
