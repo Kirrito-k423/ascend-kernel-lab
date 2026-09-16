@@ -1,10 +1,11 @@
 """语义字面量映射、原始 ABI 解码和分层 SVG/HTML；不推断 begin/end 或完成同步。"""
+import colorsys
 import html
 import json
 import math
 import re
 import struct
-from collections import Counter
+from collections import Counter, defaultdict
 from itertools import groupby
 from pathlib import Path
 
@@ -93,6 +94,26 @@ def decode_capture(folder, mapping):
     return meta, events, warnings
 
 
+def segment_color(index, level, duration, scale):
+    # 黄金角跳色兼顾相邻差异和多色循环；层级由纵向位置/标签表示。
+    hue = ((index * 137.508 + level * 97) % 360) / 360
+    # 用实际 sRGB 亮度约束深浅，避免等 HSL lightness 的黄色比蓝色亮很多。
+    # 短段更深；最低亮度 0.24，配 #111111 文字仍有 >5:1 的对比度。
+    target = 0.24 + 0.48 * math.sqrt(min(1, duration / max(1, scale)))
+    low, high = 0.0, 1.0
+    for _ in range(16):
+        light = (low + high) / 2
+        rgb = colorsys.hls_to_rgb(hue, light, 0.78)
+        linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+        luminance = sum(c * w for c, w in zip(linear, (0.2126, 0.7152, 0.0722)))
+        if luminance < target:
+            low = light
+        else:
+            high = light
+    rgb = colorsys.hls_to_rgb(hue, (low + high) / 2, 0.78)
+    return '#' + ''.join(f'{round(c * 255):02x}' for c in rgb)
+
+
 def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
     if clock_mhz is not None and (not math.isfinite(clock_mhz) or clock_mhz <= 0):
         raise ValueError("clock MHz 必须是有限正数")
@@ -116,9 +137,14 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
         if clock_mhz is not None:
             ruler.append(f'<text x="{x}" y="32" text-anchor="{anchor}">{tick / clock_mhz:,.3f}</text>')
     ruler = ''.join(ruler)
+    by_block = defaultdict(list)
+    for event in events:
+        by_block[event['block']].append(event)
+    # 全部 block 共用核内最长跨度；窗口、单位与 block 筛选均不改变配色。
+    color_scale = max(int(lane[-1]['tick']) - int(lane[0]['tick']) for lane in by_block.values()) or 1
     rows, lanes = [], []
     for block in range(meta["blocks"]):
-        lane = [e for e in events if e["block"] == block]
+        lane = by_block.get(block, [])
         svg = []
         for level in range(depth):
             # 只合并连续的父路径；叶子保留每次命中，循环边界不消失。
@@ -126,7 +152,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
                 index, event = item
                 prefix = tuple(event["path"][:level+1])
                 return prefix, index if level >= len(event["path"])-1 else None
-            for (prefix, _), group in groupby(enumerate(lane), key=group_key):
+            for color_index, ((prefix, _), group) in enumerate(groupby(enumerate(lane), key=group_key)):
                 segment = list(group)
                 if len(prefix) <= level:
                     continue
@@ -139,18 +165,15 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
                 visible = (left <= start <= right) if start == end else (end > left and start < right)
                 x = 100 + 1040 * max(0, start-left) / span
                 width = 1040 * max(0, min(end, right)-max(start, left)) / span
-                hue = path_hash(prefix[:1]) % 360
-                light = min(86, 40 + level * 10 + path_hash(prefix) % 8)
-                saturation = 40 + path_hash(prefix) % 35
-                color = f'hsl({hue} {saturation}% {light}%)'
+                color = segment_color(color_index, level, end-start, color_scale)
                 # 1px 仅作短区间可见性标记；真实时长保留在 title，完整标签供缩放后恢复。
                 label = html.escape(prefix[-1][:max(0, int(width/9)-1)])
                 svg.append((end-start, f'<g data-level="{level}" data-start="{start}" data-end="{end}" '
-                           f'data-label="{html.escape(prefix[-1], quote=True)}"'
+                           f'data-label="{html.escape(prefix[-1], quote=True)}" data-path="{html.escape(" / ".join(prefix), quote=True)}"'
                            + ('' if visible else ' style="display:none"') + f'><title>{title}</title>'
                            f'<rect x="{x}" y="{level*16}" width="{max(width, 1)}" height="14" '
                            f'fill="{color}" stroke="white" stroke-width="0"/>'
-                           f'<text x="{x+3}" y="{level*16+11}" font-size="11">{label}</text></g>'))
+                           f'<text x="{x+3}" y="{level*16+11}" font-size="11" fill="#111111">{label}</text></g>'))
         # 短段后画，避免其最小宽度标记被相邻长段遮住。
         lanes.append(f'<text x="8" y="12">block {block}</text>'
                      + ''.join(markup for _, markup in sorted(svg, key=lambda item: -item[0])))
@@ -190,6 +213,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 <style>body{{font:14px system-ui;margin:20px;color:#183047}}svg{{display:block;width:100%}}.chart{{overflow:auto;max-height:72vh;border:1px solid #cbd5e1}}.canvas{{min-width:900px}}.ruler{{position:sticky;top:0;z-index:1;background:white;border-bottom:1px solid #cbd5e1}}output{{display:block;padding:4px 8px;font:12px ui-monospace,monospace;min-height:18px}}td,th{{padding:4px 8px;text-align:left;border-bottom:1px solid #ddd}}input{{width:60px}}.controls{{margin:12px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}}#from,#to{{width:120px}}#timeline{{user-select:none;touch-action:pan-y}}details{{margin-top:18px}}</style>
 <h1>语义 cycle 时间线 · rank {meta['rank']} / device {meta['device']}</h1>
 <p>共同原始起点 {origin}；范围 Δcycle=0…{extent}；跨核对齐未验证。{warning}</p>
+<p>相邻区间跳色，短段颜色更深；颜色不表示父子关系，层级由纵向位置和标签表示。</p>
 <p>每段表示该打点至下一个打点，末点仅作标记。移动鼠标对齐各 block，单击固定对齐线，再次单击解除。</p>
 <div class="controls">
 <button id="zoom-in">＋ 放大</button><button id="zoom-out">− 缩小</button>
@@ -204,6 +228,8 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 <span id="conversion">显示换算，可按实际时钟调整</span></div>
 <div class="controls"><label>Block <input id="blocks" type="text" style="width:240px" value="0-{min(meta['blocks']-1, 7)}"></label>
 <button id="apply-blocks">显示所选 block</button><button id="all-blocks">全部 block</button><span id="block-status"></span></div>
+<div class="controls"><label>搜索模块 <input id="search" type="search" style="width:260px" placeholder="完整语义路径中的关键词"></label>
+<button id="clear-search">清除搜索</button><span id="search-status" role="status"></span></div>
 <p>支持范围与逗号，例如 0-7,16,32-39。默认仅绘制前 8 个 block；统计表也只显示所选 block，完整记录仍在导出的 JSONL 中。</p>
 <div class="chart" tabindex="0" role="region" aria-label="block 时间线"><div class="canvas"><div class="ruler">{svg_open}id="axis" viewBox="0 0 1180 40">{ruler}</svg>
 <output id="readout" aria-live="off">移动鼠标读取 cycle</output></div>

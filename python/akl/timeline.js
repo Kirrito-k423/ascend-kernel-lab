@@ -29,7 +29,7 @@ function selectBlocks() {
         document.getElementById('lanes').innerHTML=selected.map(b=>`<g class="lane" data-block="${b}">${laneData[b].svg}</g>`).join('');
         segments=[...timeline.querySelectorAll('[data-start]')].map(g=>({
             g,start:BigInt(g.dataset.start),end:BigInt(g.dataset.end),rect:g.querySelector('rect'),label:g.querySelector('text'),
-            title:g.querySelector('title'),base:g.querySelector('title').textContent.replace(/ \| Δµs=.*$/,'')
+            path:(g.dataset.path || g.dataset.label).toLowerCase(),title:g.querySelector('title'),base:g.querySelector('title').textContent.replace(/ \| Δµs=.*$/,'')
         }));
         layout(); tables(); draw();
         document.getElementById('block-status').textContent=`已绘制 ${selected.length} / ${laneData.length} 个 block`;
@@ -62,10 +62,18 @@ function draw() {
         ruler+=`<path d="M${x},35 v5" stroke="#64748b"/><text x="${x}" y="16" text-anchor="${anchor}">${unit==='cycle'?t:formatUs(t)}</text>`;
     }
     document.getElementById('axis').innerHTML=ruler;
+    const query=document.getElementById('search').value.trim().toLowerCase();
+    let matches=0;
     for(const s of segments) {
         const visible=Number(s.g.dataset.level)<depth && (s.start===s.end ? s.start>=left && s.start<=right : s.end>left && s.start<right);
         s.g.style.display=visible?'':'none';
         if(!visible) continue;
+        const match=!!query && s.path.includes(query);
+        matches+=Number(match);
+        s.g.style.opacity=query && !match ? '.25' : '1';
+        s.rect.setAttribute('stroke',match?'#111111':'none');
+        s.rect.setAttribute('stroke-width',match?'2':'0');
+        s.rect.setAttribute('vector-effect','non-scaling-stroke');
         const x=xAt(max(s.start,left)), width=Math.max(1,xAt(min(s.end,right))-x);
         s.rect.setAttribute('x',x); s.rect.setAttribute('width',width);
         s.label.setAttribute('x',x+3);
@@ -74,6 +82,7 @@ function draw() {
     }
     document.getElementById('from').value=left; document.getElementById('to').value=right;
     document.getElementById('window').textContent='窗口 Δcycle '+left+'…'+right+'（跨度 '+(right-left)+'）';
+    document.getElementById('search-status').textContent=query ? `匹配 ${matches} 个可见区间（当前 block / 时间 / 层级）` : '';
     showCursor();
 }
 function view(a,b) {
@@ -144,4 +153,6 @@ document.getElementById('unit').onchange=e=>{unit=e.target.value;draw();};
 document.getElementById('apply-blocks').onclick=selectBlocks;
 document.getElementById('all-blocks').onclick=()=>{document.getElementById('blocks').value='0-'+(laneData.length-1);selectBlocks();};
 for(const id of ['counts','events']) document.getElementById(id+'-detail').ontoggle=tables;
+document.getElementById('search').oninput=draw;
+document.getElementById('clear-search').onclick=()=>{document.getElementById('search').value='';draw();};
 selectBlocks();
