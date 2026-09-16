@@ -1,6 +1,6 @@
 # 语义打点与循环计数
 
-本接口已通过 CPU 协议测试和浏览器检查；本轮未完成 CANN 编译与 NPU 实测。既有 A3 micro-benchmark 结果不作为新接口的实测证据。
+本接口已通过 CPU 协议测试、浏览器检查，以及 CANN 9.1.0-beta.1/Bisheng 的 A3、A5 编译回归。使用仓 PR #20 已通过 A5 kernel 库编译；尚未执行该业务的 NPU 正确性或性能测试。既有 A3 micro-benchmark 结果不作为新接口的实测证据。
 
 ## 写法
 
@@ -67,3 +67,13 @@ results/semantic-cpu/check results/semantic-cpu/captures
 ```
 
 C++ 检查使用明确的 CPU API 替身，覆盖真实 Recorder/Capture 的数据协议、循环次数、溢出和关闭路径；不模拟 NPU 流水、时钟域或性能。Python 测试覆盖大整数精度、解析、损坏记录、转义和 HTML 输出。
+
+真实 CANN 编译回归（应用 CPU/CANN 检查 PR 后）：
+
+```bash
+source /usr/local/Ascend/cann/set_env.sh
+bisheng -xasc --npu-arch=dav-3510 -std=c++17 -O2 -Iinclude \
+  -c tests/semantic_cann.cpp -o /tmp/semantic_cann.o
+```
+
+`dav-3510` 为 A5；通用接口 A3 检查使用 `dav-2201`。用例保留真实 GM 字符串类型，覆盖设备 constexpr 哈希、循环打点、关闭路径和 Flush。编译成功不等于 NPU 执行；使用仓当前 SIMT 分支的完整 A3 构建仍受架构限制。

@@ -37,4 +37,4 @@
 
 ## 语义打点试用
 
-新增多级字符串打点、绝对 cycle、循环出现次数和分层 HTML/SVG。使用仓通过固定版本依赖接入，见 [语义打点说明](docs/semantic-trace.md)。新能力已通过 CPU 与浏览器验证，本轮 CANN/NPU 尚未验证。
+新增多级字符串打点、绝对 cycle、循环出现次数和分层 HTML/SVG。使用仓通过固定版本依赖接入，见 [语义打点说明](docs/semantic-trace.md)。新能力已通过 CPU、浏览器及 CANN A3/A5 编译回归；业务接入已通过 A5 kernel 库编译，NPU 运行待验证。
