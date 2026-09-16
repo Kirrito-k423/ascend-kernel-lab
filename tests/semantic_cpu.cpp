@@ -4,6 +4,16 @@
 #include <cassert>
 #include <iostream>
 #define DebugClock(...) AKL_DEBUG_CLOCK(recorder, __VA_ARGS__)
+#if defined(__clang__)
+// 保留地址空间的类型回归：CPU 替身的空 __gm__ 无法覆盖 Bisheng 字符串类型。
+// 这只验证 Clang 类型推导与 constexpr，不替代真实 CANN 编译。
+constexpr __attribute__((address_space(1))) char gmParent[] = "big func";
+constexpr __attribute__((address_space(1))) char gmChild[] = "sub func";
+constexpr __attribute__((address_space(1))) char gmPart[] = "A part";
+constexpr __attribute__((address_space(1))) char gmEvent[] = "iteration";
+static_assert(akl::PathHash(2166136261u, gmParent, gmChild, gmPart, gmEvent) == 2279751878u);
+static_assert(akl::PathHash(2166136261u, gmParent, "sub func", gmPart, "iteration") == 2279751878u);
+#endif
 int main(int argc, char** argv) {
     assert(argc == 2);
     akl::Capture<8> capture(2, nullptr);
