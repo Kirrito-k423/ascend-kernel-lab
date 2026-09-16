@@ -31,6 +31,10 @@ Host 使用 `akl::Capture<256> trace(blocks, stream)`，将 `trace.Data()` 作�
 
 Flush 的 EVENT_ID0（S→MTE3、MTE3→S）必须空闲；仅支持每个逻辑 block 独占一个 AIV 的映射。Host 调用 `trace.Export(root, rank)` 同步所属流、复制原始 uint64 数据，写入独立 launch 目录。关闭时不构造 Capture，使用 `Recorder<false, 256>` 或空宏。
 
+同步导出使用 ACL 页锁定主机内存拷回。有效记录仍逐次保存；仅去掉所有 block 都未使用的尾部槽位，文件 `capacity` 是紧凑后的正偶数行容量，新增 `recorder_capacity` 保留配置容量。不会减少记录或改写 cycle/count/dropped；旧 v1 解析器仍可读取。缺失/损坏行保留原容量，供离线检查报错。`Export()` 成功返回时文件已关闭、可立即读取，不使用后台写入线程。
+
+此次修改位于 Host 头文件，使用仓须更新子模块并重新编译；重新出图本身不能加速旧二进制。填满容量时无法缩短文件，实际收益取决于记录量与文件系统。
+
 当前仅支持普通 launch；图捕获、跨卡校准、混合 AIC/AIV 和生产并发集成尚未验收。增加容量也会增加设备局部存储和导出 UB 开销，须在目标芯片检查资源与扰动。
 
 ## 构建依赖与离线分析
