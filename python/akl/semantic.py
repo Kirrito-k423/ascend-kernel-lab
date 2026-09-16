@@ -154,14 +154,14 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
         # 短段后画，避免其最小宽度标记被相邻长段遮住。
         lanes.append(f'<text x="8" y="12">block {block}</text>'
                      + ''.join(markup for _, markup in sorted(svg, key=lambda item: -item[0])))
+        block_rows = []
         for event in lane:
-            rows.append(f'<tr><td>{block}/{event["subblock"]}</td><td>{event["sequence"]}</td><td>{event["occurrence"]}</td>'
+            block_rows.append(f'<tr><td>{block}/{event["subblock"]}</td><td>{event["sequence"]}</td><td>{event["occurrence"]}</td>'
                         f'<td>{event["tick"]}</td><td>{html.escape(" / ".join(event["path"]))}</td></tr>')
-    height = 8 + meta["blocks"] * stride
+        rows.append(''.join(block_rows))
+    height = 8 + min(meta["blocks"], 8) * stride
     grid = ''.join(f'<line x1="{x}" x2="{x}" y1="0" y2="100%" stroke="#cbd5e1" stroke-dasharray="2 3"/>'
                    for x in positions)
-    bands = ''.join(f'<g class="lane" data-block="{b}" transform="translate(0,{8+b*stride})">{lane}</g>'
-                    for b, lane in enumerate(lanes))
     warning = html.escape("；".join(warnings) or "无记录丢弃")
     svg_open = '<svg xmlns="http://www.w3.org/2000/svg" style="font:12px system-ui;fill:#183047" '
     # SVG 是静态导出：每 8 个 block 重复刻度；HTML 单独使用可悬浮的共同刻度。
@@ -173,14 +173,19 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
         if block % 8 == 0:
             static.append(f'<g class="ruler" transform="translate(0,{y-40})">{ruler}</g>')
         static.append(f'<g class="lane" transform="translate(0,{y+8})">{lane}</g>')
-    static_height = 24 + height + ((meta["blocks"] + 7) // 8) * 40
+    static_height = 32 + meta["blocks"] * stride + ((meta["blocks"] + 7) // 8) * 40
     drawing = svg_open + f'width="1180" height="{static_height}" viewBox="0 0 1180 {static_height}">' + ''.join(static) + '</svg>'
     counts = Counter((e["block"], e["subblock"], e["event_id"]) for e in events)
     names = {e["event_id"]: e["path"] for e in events}
     summary = [dict(block=b, subblock=s, event_id=key, path=names[key], count=count)
                for (b, s, key), count in counts.items()]
-    totals = ''.join(f'<tr><td>{s["block"]}/{s["subblock"]}</td><td>{s["count"]}</td>'
-                     f'<td>{html.escape(" / ".join(s["path"]))}</td></tr>' for s in summary)
+    lane_data = []
+    for block, lane in enumerate(lanes):
+        totals = ''.join(f'<tr><td>{s["block"]}/{s["subblock"]}</td><td>{s["count"]}</td>'
+                         f'<td>{html.escape(" / ".join(s["path"]))}</td></tr>' for s in summary if s['block'] == block)
+        lane_data.append(dict(svg=lane, rows=rows[block], counts=totals))
+    # 用字符串保存未选中的 block；不预先创建数万个 SVG/表格 DOM 节点。
+    payload = json.dumps(lane_data, ensure_ascii=False).replace('<', '\\u003c')
     page = f'''<!doctype html><html lang="zh"><meta charset="utf-8"><title>语义 cycle 时间线</title>
 <style>body{{font:14px system-ui;margin:20px;color:#183047}}svg{{display:block;width:100%}}.chart{{overflow:auto;max-height:72vh;border:1px solid #cbd5e1}}.canvas{{min-width:900px}}.ruler{{position:sticky;top:0;z-index:1;background:white;border-bottom:1px solid #cbd5e1}}output{{display:block;padding:4px 8px;font:12px ui-monospace,monospace;min-height:18px}}td,th{{padding:4px 8px;text-align:left;border-bottom:1px solid #ddd}}input{{width:60px}}.controls{{margin:12px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}}#from,#to{{width:120px}}#timeline{{user-select:none;touch-action:pan-y}}details{{margin-top:18px}}</style>
 <h1>语义 cycle 时间线 · rank {meta['rank']} / device {meta['device']}</h1>
@@ -194,16 +199,22 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 <span id="window"></span></div>
 <p>Ctrl/⌘＋滚轮以鼠标位置缩放；拖拽框选放大；Shift＋拖拽或滚轮平移。短段最小显示 1px，精确时长见悬停读数。</p>
 <div class="controls"><label>显示前 <input id="depth" type="number" min="1" max="{depth}" value="{depth}"> 级</label>
- · {f'按用户指定的 {clock_mhz:g} MHz 换算 µs' if clock_mhz else '刻度单位 cycle；提供 --clock-mhz 可增加 µs 刻度'}</div>
+<label>1 cycle = <input id="cycle-us" type="number" step="any" value="{1/clock_mhz if clock_mhz else 0.001}"> µs</label>
+<label>坐标轴单位 <select id="unit"><option value="cycle">cycle</option><option value="us">µs</option></select></label>
+<span id="conversion">显示换算，可按实际时钟调整</span></div>
+<div class="controls"><label>Block <input id="blocks" type="text" style="width:240px" value="0-{min(meta['blocks']-1, 7)}"></label>
+<button id="apply-blocks">显示所选 block</button><button id="all-blocks">全部 block</button><span id="block-status"></span></div>
+<p>支持范围与逗号，例如 0-7,16,32-39。默认仅绘制前 8 个 block；统计表也只显示所选 block，完整记录仍在导出的 JSONL 中。</p>
 <div class="chart" tabindex="0" role="region" aria-label="block 时间线"><div class="canvas"><div class="ruler">{svg_open}id="axis" viewBox="0 0 1180 40">{ruler}</svg>
 <output id="readout" aria-live="off">移动鼠标读取 cycle</output></div>
-{svg_open}id="timeline" data-origin="{origin}" data-extent="{extent}" data-mhz="{clock_mhz or ''}" data-left="{left}" data-right="{right}" viewBox="0 0 1180 {height}"><g id="grid">{grid}</g>{bands}
+{svg_open}id="timeline" data-origin="{origin}" data-extent="{extent}" data-mhz="{clock_mhz or ''}" data-left="{left}" data-right="{right}" viewBox="0 0 1180 {height}"><g id="grid">{grid}</g><g id="lanes"></g>
 <rect id="selection" y="0" height="100%" fill="#2563eb" opacity="0.15" pointer-events="none" visibility="hidden"/>
 <line id="cursor" x1="100" x2="100" y1="0" y2="100%" stroke="#0f172a" stroke-width="1" pointer-events="none" visibility="hidden"/></svg>
-</div></div><details><summary>打点次数（仅统计保留记录）</summary>
-<table><tr><th>block/subblock</th><th>次数</th><th>语义路径</th></tr>{totals}</table></details>
-<details><summary>原始绝对 cycle（整数）</summary>
-<table><tr><th>block/subblock</th><th>序号</th><th>该点第几次</th><th>cycle</th><th>语义路径</th></tr>{''.join(rows)}</table></details>
+</div></div><details id="counts-detail"><summary>打点次数（所选 block 的保留记录）</summary>
+<table><thead><tr><th>block/subblock</th><th>次数</th><th>语义路径</th></tr></thead><tbody id="counts-body"></tbody></table></details>
+<details id="events-detail"><summary>原始绝对 cycle（所选 block，整数）</summary>
+<table><thead><tr><th>block/subblock</th><th>序号</th><th>该点第几次</th><th>cycle</th><th>语义路径</th></tr></thead><tbody id="events-body"></tbody></table></details>
+<script id="lane-data" type="application/json">{payload}</script>
 <script>{Path(__file__).with_name('timeline.js').read_text()}</script></html>'''
     (folder / "semantic.html").write_text(page)
     (folder / "semantic.svg").write_text(drawing)
