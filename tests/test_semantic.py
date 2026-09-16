@@ -45,7 +45,7 @@ class Semantic(unittest.TestCase):
         counts = json.loads((self.root / "counts.json").read_text())
         self.assertEqual([s["count"] for s in counts["counts"]], [4, 4])
         self.assertEqual(len((self.root / "semantic.jsonl").read_text().splitlines()), 8)
-        self.assertIn('data-level="3"', (self.root / "semantic.html").read_text())
+        self.assertIn('id="lane-data"', (self.root / "semantic.html").read_text())
 
     def test_time_axis_and_compact_svg(self):
         self.capture()
