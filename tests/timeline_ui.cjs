@@ -7,7 +7,7 @@ function element(dataset={}) {
 }
 const names = ['timeline','cursor','selection','depth','axis','grid','readout','from','to','window',
     'zoom-in','zoom-out','pan-left','pan-right','reset','apply','lane-data','lanes','cycle-us','unit',
-    'blocks','block-status','apply-blocks','all-blocks','conversion','counts-body','counts-detail','events-body','events-detail'];
+    'search','search-status','clear-search','blocks','block-status','apply-blocks','all-blocks','conversion','counts-body','counts-detail','events-body','events-detail'];
 const ids=Object.fromEntries(names.map(id=>[id,element()]));
 Object.assign(ids.timeline.dataset,{origin:String(2n**60n),extent:'1000',left:'0',right:'1000'});
 ids.depth.max=4; ids['cycle-us'].value='0.001'; ids.blocks.value='0-7';
@@ -55,4 +55,13 @@ ids['all-blocks'].onclick();assert.equal(lanes.length,64);assert.ok(segments.eve
 const pointer={clientX:360,clientY:10,pointerId:1,button:0};
 ids.timeline.handlers.pointerdown(pointer);ids.timeline.handlers.pointerup(pointer);
 assert.match(ids.readout.textContent,/cycle≈1152921504606847351/);
-console.log('PASS: default 8/64 blocks, units/rate, invalid input, ranges/dedup, lazy tables, zoom/depth, uint64 cursor');
+ids.reset.onclick();ids.blocks.value='2-3';ids['apply-blocks'].onclick();
+ids.depth.oninput({target:{value:'4'}});
+ids.search.value='PART';ids.search.oninput();assert.match(ids['search-status'].textContent,/匹配 2 /);
+assert.ok(segments.every(g=>g.querySelector('rect').attrs['stroke-width']==='2'));
+ids.search.value='missing';ids.search.oninput();assert.match(ids['search-status'].textContent,/匹配 0 /);
+assert.ok(segments.every(g=>g.style.opacity==='.25'));
+ids['clear-search'].onclick();assert.ok(segments.every(g=>g.style.opacity==='1'));
+ids.search.value='part';ids.search.oninput();ids.depth.oninput({target:{value:'2'}});
+assert.match(ids['search-status'].textContent,/匹配 0 /);
+console.log('PASS: default 8/64 blocks, units/rate, invalid input, ranges/dedup, lazy tables, zoom/depth, uint64 cursor, search/highlight');
