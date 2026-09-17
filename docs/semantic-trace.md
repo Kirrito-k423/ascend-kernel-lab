@@ -123,3 +123,11 @@ bisheng -xasc --npu-arch=dav-3510 -std=c++17 -O2 -Iinclude \
 ```
 
 `dav-3510` 为 A5；通用接口 A3 检查使用 `dav-2201`。用例保留真实 GM 字符串类型，覆盖设备 constexpr 哈希、循环打点、关闭路径和 Flush。编译成功不等于 NPU 执行；使用仓当前 SIMT 分支的完整 A3 构建仍受架构限制。
+
+## Chrome Trace JSON
+
+相同分析命令还生成每个采集目录的 `trace.json`，父目录模式额外生成 `result/trace.json`，包含所有有效 rank/launch；失败采集记录诊断事件。完整 ZIP 包含这些文件，可从报告直接下载。
+把单个 JSON 导入 Chrome tracing 或 Perfetto（Open trace file）。每次采集为独立进程轨道组，block/subblock 为线程轨道；父语义合并连续区间，叶子保留循环命中，末点与零时长点使用 instant 事件。
+`ts`/`dur` 的单位是 µs；默认 1 cycle = 0.001 µs，`--clock-mhz MHz` 改为 1/MHz。默认值仅为显示换算；HTML 内修改单位/比例不改已导出的 JSON，需带参数重新分析。
+原始绝对 tick、区间末 tick、次数与 sequence 保存在事件属性中；大整数 cycle 用字符串保存。每次采集各自减共同起点，不表示跨核、跨 rank 或跨 launch 时钟已校准；不能从汇总轨道重叠推断并发关系。
+JSON 保留全部 block 和完整区间，不受 HTML 筛选或 `--cycle-range` 裁剪；批量逐次追加，不将全部采集同时加载到内存。此功能仅需更新 Python 工具并重新出图，无需重新编译或采集。
