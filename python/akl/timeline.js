@@ -81,7 +81,8 @@ function draw() {
         s.title.textContent=s.base+' | Δµs='+formatUs(s.end-s.start);
         if(s.g.dataset.work) {
             const w=JSON.parse(s.g.dataset.work), duration=Number(w.elapsed_cycle)*cycleUs;
-            s.title.textContent+=` | 处理量=${w.amount} ${w.unit} | 速度=${duration>0?(Number(w.amount)/duration).toPrecision(6):'不可计算'} ${w.unit}/us`;
+            s.title.textContent+=` | 处理量=${w.amount===null?'基线':w.amount} ${w.unit} | 速度=${duration>0?(Number(w.amount)/duration).toPrecision(6):'不可计算'} ${w.unit}/us`;
+            if('scope' in w) s.title.textContent+=` | index=${w.scope} 累计=${w.cumulative} | `+(w.start_tick===null?'首次探测：仅建立基线':`探测区间 cycle=${w.start_tick} → ${w.end_tick}；间隔=${w.elapsed_cycle} cycle (${duration} µs)`);
         }
     }
     document.getElementById('from').value=left; document.getElementById('to').value=right;

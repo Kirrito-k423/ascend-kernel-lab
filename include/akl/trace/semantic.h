@@ -13,7 +13,7 @@ __aicore__ constexpr uint32_t PathHash(uint32_t hash, const Char* part, Tail... 
 template<class Recorder>
 __aicore__ inline void Clock(Recorder& recorder, uint32_t hash) { recorder.Mark(hash); }
 template<class Recorder, typename Number, typename Char,
-         std::enable_if_t<std::is_arithmetic_v<Number>, int> = 0>
+         std::enable_if_t<std::is_arithmetic_v<Number> || std::is_same_v<Number, Counter>, int> = 0>
 __aicore__ inline void Clock(Recorder& recorder, uint32_t hash, Number amount, const Char* unit) {
     recorder.Work(PathHash(hash, "@quantity", unit), amount);
 }

@@ -4,6 +4,7 @@
 #include <type_traits>
 
 namespace akl {
+struct Counter { uint32_t scope; uint64_t value; }; // 同一 scope 的单调累计量；离线相邻观测求差。
 // 每 AIV 独立、固定容量；打点不插入 barrier。只有 flush 使用调用方专属 UB。
 template<bool Enabled, uint32_t Capacity = kCapacity, bool Quantities = false>
 class Recorder {
@@ -24,6 +25,14 @@ public:
                 amounts_[slot] = std::is_integral_v<Number> ? uint64_t(amount) : packed.bits;
                 kinds_[slot] = amount < 0 ? 3 : (std::is_integral_v<Number> ? 1 : 2);
             }
+        }
+    }
+    __aicore__ inline void Work(uint32_t id, Counter counter) {
+        if constexpr (Enabled) {
+            uint32_t slot = count_;
+            Work(id, counter.value);
+            // kind 低32位=4 标识累计计数，高32位保留完整 scope；value 槽仍为 uint64。
+            if (slot < Capacity) kinds_[slot] = (uint64_t(counter.scope) << 32) | 4;
         }
     }
     __aicore__ inline void At(uint32_t id, uint64_t tick) {
@@ -70,7 +79,7 @@ private:
     uint64_t ticks_[Enabled ? Capacity : 1];
     uint32_t ids_[Enabled ? Capacity : 1];
     uint64_t amounts_[Enabled && Quantities ? Capacity : 1];
-    uint32_t kinds_[Enabled && Quantities ? Capacity : 1];
+    uint64_t kinds_[Enabled && Quantities ? Capacity : 1];
     uint32_t count_ = 0;
     uint64_t dropped_ = 0;
 };

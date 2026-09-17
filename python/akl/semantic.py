@@ -9,7 +9,7 @@ from collections import Counter, defaultdict
 from itertools import groupby
 from pathlib import Path
 
-from .chrome_trace import trace_file, write_capture
+from .chrome_trace import trace_file, write_capture, interval_work
 
 MAGIC = 0x414B4C5452433031
 
@@ -101,7 +101,7 @@ def decode_capture(folder, mapping):
             raise ValueError(f"block {block} 未提交或 ABI 损坏")
         if row[3]:
             warnings.append(f"block {block}: dropped={row[3]}，仅展示保留前缀")
-        previous, occurrences = -1, Counter()
+        previous, occurrences, counters = -1, Counter(), {}
         for seq in range(row[2]):
             key, tick = row[8+stride*seq:10+stride*seq]
             if key not in mapping or tick < previous:
@@ -111,11 +111,21 @@ def decode_capture(folder, mapping):
             work = None
             if version == 2 and row[11+stride*seq]:
                 value, kind = row[10+stride*seq:12+stride*seq]
-                amount = value if kind == 1 else struct.unpack('<f', struct.pack('<I', value & 0xffffffff))[0]
-                if kind not in (1, 2) or not math.isfinite(amount) or amount < 0 or not isinstance(definition, dict):
-                    raise ValueError("处理量或单位非法")
-                work = dict(amount=str(amount), unit=definition['unit'],
-                            elapsed_cycle=str(tick-previous) if previous >= 0 else None)
+                if not isinstance(definition, dict): raise ValueError("处理量或单位非法")
+                if kind & 0xffffffff == 4:
+                    scope = kind >> 32
+                    prior = counters.get((key, scope))
+                    if prior and value < prior[0]: raise ValueError("累计计数回退：需要单调累计值或新的 scope")
+                    work = dict(amount=str(value-prior[0]) if prior else None, unit=definition['unit'],
+                                elapsed_cycle=str(tick-prior[1]) if prior else None, scope=scope,
+                                cumulative=str(value), start_tick=str(prior[1]) if prior else None, end_tick=str(tick))
+                    counters[(key, scope)] = (value, tick)
+                else:
+                    amount = value if kind == 1 else struct.unpack('<f', struct.pack('<I', value & 0xffffffff))[0]
+                    if kind not in (1, 2) or not math.isfinite(amount) or amount < 0:
+                        raise ValueError("处理量或单位非法")
+                    work = dict(amount=str(amount), unit=definition['unit'],
+                                elapsed_cycle=str(tick-previous) if previous >= 0 else None)
             previous = tick
             occurrences[key] += 1
             events.append(dict(block=block, subblock=row[5], sequence=seq, event_id=key,
@@ -199,11 +209,14 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
                 title = html.escape(f'{" / ".join(prefix)} | seq={first}…{last} | '
                                     f'cycle={origin+start} → {origin+end} | Δcycle={end-start}'
                                     + (f' | Δµs={(end-start)/clock_mhz:.3f}' if clock_mhz else ''))
-                work = lane[first+1].get('work') if first == last and first+1 < len(lane) and level == len(lane[first]['path'])-1 else None
+                work = interval_work(lane, first) if first == last and level == len(lane[first]['path'])-1 else None
                 auxiliary = ''
                 if work:
                     auxiliary = ' data-work="' + html.escape(json.dumps(work), quote=True) + '"'
-                    title += html.escape(f" | 处理量={work['amount']} {work['unit']} | 速度={work['rate_per_us'] if work['rate_per_us'] is not None else '不可计算'} {work['unit']}/us")
+                    title += html.escape(f" | 处理量={work['amount'] if work['amount'] is not None else '基线'} {work['unit']} | 速度={work['rate_per_us'] if work['rate_per_us'] is not None else '不可计算'} {work['unit']}/us")
+                    if 'scope' in work:
+                        title += html.escape(f" | index={work['scope']} 累计={work['cumulative']} | " +
+                            (f"探测区间 cycle={work['start_tick']} → {work['end_tick']}；间隔={work['elapsed_cycle']} cycle" if work['start_tick'] is not None else '首次探测：仅建立基线'))
                 visible = (left <= start <= right) if start == end else (end > left and start < right)
                 x = 100 + 1040 * max(0, start-left) / span
                 width = 1040 * max(0, min(end, right)-max(start, left)) / span
@@ -222,7 +235,9 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
         block_rows = []
         for event in lane:
             work = event.get('work')
-            detail = f"{work['amount']} {work['unit']} / {work['elapsed_cycle']} cycle；{work['rate_per_us'] if work['rate_per_us'] is not None else '不可计算'} {work['unit']}/us" if work else '—'
+            detail = f"{work['amount'] if work['amount'] is not None else '基线'} {work['unit']} / {work['elapsed_cycle'] if work['elapsed_cycle'] is not None else '未知'} cycle；{work['rate_per_us'] if work['rate_per_us'] is not None else '不可计算'} {work['unit']}/us" if work else '—'
+            if work and 'scope' in work:
+                detail += f"；index={work['scope']} 累计={work['cumulative']}；" + (f"探测 cycle={work['start_tick']} → {work['end_tick']}" if work['start_tick'] is not None else '首次探测：仅建立基线')
             block_rows.append(f'<tr><td>{block}/{event["subblock"]}</td><td>{event["sequence"]}</td><td>{event["occurrence"]}</td>'
                         f'<td>{event["tick"]}</td><td>{html.escape(" / ".join(event["path"]))}</td><td>{html.escape(detail)}</td></tr>')
         rows.append(''.join(block_rows))

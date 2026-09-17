@@ -5,6 +5,13 @@ from contextlib import contextmanager
 from itertools import groupby
 
 
+def interval_work(lane, index):
+    work = lane[index].get('work')
+    if work and 'scope' in work: return work  # 累计计数归属当前观测；区间由 start/end_tick 明示。
+    work = lane[index+1].get('work') if index+1 < len(lane) else None
+    return work if work and 'scope' not in work else None
+
+
 @contextmanager
 def trace_file(path):
     with path.open('w', encoding='utf-8') as output:
@@ -53,7 +60,7 @@ def write_capture(emit, capture_id, pid, meta, events, warnings, clock_mhz=None)
                               leaf=level == len(event['path'])-1, end_tick=str(end), duration_cycle=str(end-start),
                               last_sequence=lane[last]['sequence']))
                 record['args']['point_work'] = event.get('work')
-                record['args']['work'] = lane[first+1].get('work') if first == last and first+1 < len(lane) and record['args']['leaf'] else None
+                record['args']['work'] = interval_work(lane, first) if first == last and record['args']['leaf'] else None
                 record.update(dict(ph='X', dur=(end-start)*rate) if end > start else dict(ph='i', s='t'))
                 slices.append((start, -end, level, record))
         # Complete 事件须先外后内；同刻度按层级排序，不产生交叉嵌套。
