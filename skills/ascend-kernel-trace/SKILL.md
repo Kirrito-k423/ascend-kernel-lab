@@ -15,6 +15,7 @@ description: 为真实 Ascend 算子设计、接入和验证独立多核时间�
 - 采集：在仓库根目录运行 `python3 scripts/run_micro.py --device 0 --max-cores 48 --samples 10 --warmup 3 --output results/<新运行名>`，先按运行说明编译并确认空闲设备。
 - 分析：`python3 scripts/report.py results/<运行名>`，可在无NPU机器运行。
 - 新目标算子事件表需要新增解析适配；现有解码器会严格检查实验的5个事件，不能直接用于任意事件序列。
+- 多级字符串和循环命中可使用 [语义打点入口](../../docs/semantic-trace.md)；该新增入口已完成 CPU/浏览器及 CANN A3/A5 编译验证，业务 NPU 运行尚未验收。
 
 ## 工作流程
 
