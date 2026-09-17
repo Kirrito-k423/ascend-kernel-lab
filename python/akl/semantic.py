@@ -275,6 +275,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 <p>共同原始起点 {origin}；范围 Δcycle=0…{extent}；跨核对齐未验证。{warning}</p>
 <p>相邻区间跳色，短段颜色更深；颜色不表示父子关系，层级由纵向位置和标签表示。</p>
 <p>每段表示该打点至下一个打点，末点仅作标记。移动鼠标对齐各 block，单击固定对齐线，再次单击解除。</p>
+<p>累计计数的处理量是同一 index 相邻探测的增量，速率按悬停中的“探测区间”计算；色块仍表示当前打点到下一点。</p>
 <div class="controls">
 <button id="zoom-in">＋ 放大</button><button id="zoom-out">− 缩小</button>
 <button id="pan-left">← 平移</button><button id="pan-right">平移 →</button><button id="reset">全范围</button>
