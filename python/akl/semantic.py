@@ -9,6 +9,8 @@ from collections import Counter, defaultdict
 from itertools import groupby
 from pathlib import Path
 
+from .chrome_trace import trace_file, write_capture
+
 MAGIC = 0x414B4C5452433031
 
 
@@ -212,6 +214,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
     page = f'''<!doctype html><html lang="zh"><meta charset="utf-8"><title>语义 cycle 时间线</title>
 <style>body{{font:14px system-ui;margin:20px;color:#183047}}svg{{display:block;width:100%}}.chart{{overflow:auto;max-height:72vh;border:1px solid #cbd5e1}}.canvas{{min-width:900px}}.ruler{{position:sticky;top:0;z-index:1;background:white;border-bottom:1px solid #cbd5e1}}output{{display:block;padding:4px 8px;font:12px ui-monospace,monospace;min-height:18px}}td,th{{padding:4px 8px;text-align:left;border-bottom:1px solid #ddd}}input{{width:60px}}.controls{{margin:12px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}}#from,#to{{width:120px}}#timeline{{user-select:none;touch-action:pan-y}}details{{margin-top:18px}}</style>
 <h1>语义 cycle 时间线 · rank {meta['rank']} / device {meta['device']}</h1>
+<a href="trace.json" download>下载 Chrome Trace JSON（导出时的换算设置，全量 block/区间）</a>
 <p>共同原始起点 {origin}；范围 Δcycle=0…{extent}；跨核对齐未验证。{warning}</p>
 <p>相邻区间跳色，短段颜色更深；颜色不表示父子关系，层级由纵向位置和标签表示。</p>
 <p>每段表示该打点至下一个打点，末点仅作标记。移动鼠标对齐各 block，单击固定对齐线，再次单击解除。</p>
@@ -248,6 +251,8 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
         for event in events:
             out.write(json.dumps(dict(meta, launch_id=folder.name, **event), ensure_ascii=False) + "\n")
     (folder / "counts.json").write_text(json.dumps(dict(counts=summary, warnings=warnings), indent=2))
+    with trace_file(folder / 'trace.json') as emit:
+        write_capture(emit, folder.name, 1, meta, events, warnings, clock_mhz)
 
 
 
