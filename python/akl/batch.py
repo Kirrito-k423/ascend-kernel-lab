@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .semantic import decode_capture, render
+from .chrome_trace import trace_file, write_capture
 
 SCHEMA = 'akl.semantic.batch.v1'
 
@@ -53,7 +54,7 @@ def export_batch(root, output, mapping, sources, clock_mhz=None, cycle_range=Non
             shutil.copyfile(source, stage/'sources'/f'{i}_{Path(source).name}')
         (stage/'event-map.json').write_text(json.dumps(mapping, ensure_ascii=False, indent=2))
         runs, totals = [], defaultdict(lambda: dict(count=0, intervals=0, sum_cycle=0, min_cycle=None, max_cycle=None))
-        with (stage/'events.jsonl').open('w') as combined:
+        with (stage/'events.jsonl').open('w') as combined, trace_file(stage/'trace.json') as emit:
             for folder, (rank, pid, launch) in captures:
                 relative = folder.relative_to(root).as_posix()
                 destination = stage/'runs'/relative
@@ -66,7 +67,7 @@ def export_batch(root, output, mapping, sources, clock_mhz=None, cycle_range=Non
                     if meta['rank'] != rank:
                         raise ValueError('目录 rank 与 capture.json 不一致')
                     render(folder, meta, events, warnings, clock_mhz, cycle_range)
-                    for name in ('semantic.html', 'semantic.svg', 'semantic.jsonl', 'counts.json'):
+                    for name in ('semantic.html', 'semantic.svg', 'semantic.jsonl', 'counts.json', 'trace.json'):
                         shutil.copyfile(folder/name, destination/name)
                     # 以相对路径识别采集，保留不同实验子目录内相同的 launch 名称。
                     for event in events:
@@ -88,8 +89,10 @@ def export_batch(root, output, mapping, sources, clock_mhz=None, cycle_range=Non
                     run.update(status='ok', device=meta['device'], events=len(events), blocks=meta['blocks'],
                                warnings=warnings, min_block_cycle=str(min(spans)), max_block_cycle=str(max(spans)),
                                html=quote((destination.relative_to(stage)/'semantic.html').as_posix(), safe='/'))
+                    write_capture(emit, relative, len(runs)+1, meta, events, warnings, clock_mhz)
                 except (OSError, ValueError, KeyError, TypeError) as error:
                     run['error'] = str(error)
+                    emit(dict(ph='i', s='p', name='capture error', pid=len(runs)+1, tid=0, ts=0, args=run.copy()))
                 runs.append(run)
                 print(f"[{len(runs)}/{len(captures)}] {relative}: {run['status']}", flush=True)
         # 汇总整数也用十进制字符串，避免浏览器读取 >2^53 的累计值时丢精度。
