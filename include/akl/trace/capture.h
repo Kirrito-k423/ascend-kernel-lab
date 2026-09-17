@@ -13,10 +13,11 @@
 
 namespace akl {
 // 每次 launch 独占 GM，析构前等待所属流，不能挪用业务 workspace。
-template<uint32_t Capacity = kCapacity>
+template<uint32_t Capacity = kCapacity, bool Quantities = false>
 class Capture {
 public:
-    static constexpr uint32_t words = 8 + 2 * Capacity;
+    static constexpr uint32_t stride = Quantities ? 4 : 2, version = Quantities ? 2 : 1;
+    static constexpr uint32_t words = 8 + stride * Capacity;
     Capture(uint32_t blocks, void* stream) : blocks_(blocks), stream_(stream) {
         static_assert(Capacity > 0 && Capacity % 2 == 0, "容量须为正偶数以保证32B对齐");
         if (!blocks || blocks > std::numeric_limits<size_t>::max() / (words * sizeof(uint64_t)))
@@ -47,7 +48,7 @@ public:
         uint32_t kept = 0;
         for (uint32_t b = 0; b < blocks_; ++b) {
             const auto* row = raw + size_t(b) * words;
-            if (row[0] != kMagic || row[1] != 1 || row[7] != 1 || row[4] != b || row[2] > Capacity) {
+            if (row[0] != kMagic || row[1] != version || row[7] != 1 || row[4] != b || row[2] > Capacity) {
                 kept = Capacity;
                 break;
             }
@@ -55,7 +56,7 @@ public:
         }
         // 向上取偶数（21→22），至少 2 个槽，保持正偶数容量和 32B 行对齐。
         const uint32_t stored = kept ? (kept + 1) & ~1u : 2;
-        const size_t storedWords = 8 + 2 * stored;
+        const size_t storedWords = 8 + stride * stored;
         // 顺序向前紧凑排列，源/目标可能重叠，必须用 memmove。
         if (stored < Capacity) for (uint32_t b = 1; b < blocks_; ++b)
             std::memmove(raw + size_t(b) * storedWords, raw + size_t(b) * words, storedWords * 8);
@@ -67,7 +68,7 @@ public:
                 "-launch" + std::to_string(sequence.fetch_add(1)));
         } while (!std::filesystem::create_directory(folder));
         Write(folder / "trace.bin", reinterpret_cast<const char*>(raw), size_t(blocks_) * storedWords * 8);
-        const auto metadata = "{\"schema\":\"akl.semantic.v1\",\"capacity\":" + std::to_string(stored) + ",\"recorder_capacity\":" + std::to_string(Capacity) +
+        const auto metadata = std::string("{\"schema\":\"akl.semantic.v") + std::to_string(version) + "\",\"capacity\":" + std::to_string(stored) + ",\"recorder_capacity\":" + std::to_string(Capacity) +
             ",\"blocks\":" + std::to_string(blocks_) + ",\"rank\":" + std::to_string(rank) +
             ",\"device\":" + std::to_string(device_) + ",\"alignment\":\"unverified\"}";
         Write(folder / "capture.json", metadata.data(), metadata.size());

@@ -49,15 +49,32 @@ def event_map(sources):
                 j += 1
                 if tokens[j:j+1] == [")"]:
                     raise ValueError("打点参数不能以逗号结束")
+            unit = None
+            if path and tokens[j:j+1] != [")"]:
+                # 末尾数量是 C++ 表达式，只定位其边界，不在 Python 求值。
+                start, depth = j, 0
+                while j < len(tokens):
+                    if tokens[j] in ('(', '[', '{'): depth += 1
+                    if tokens[j] in (')', ']', '}'):
+                        if depth == 0: break
+                        depth -= 1
+                    if depth == 0 and tokens[j] == ',': break
+                    j += 1
+                if j > start and tokens[j:j+1] == [','] and tokens[j+1:j+2] and tokens[j+1].startswith('"'):
+                    unit = json.loads(tokens[j+1])
+                    if not unit or "\0" in unit: raise ValueError("处理量单位不能为空或含 NUL")
+                    j += 2
+                if unit is None: raise ValueError("处理量后必须提供单位字符串字面量")
             if not path or tokens[j:j+1] != [")"]:
                 # 转发宏的 __VA_ARGS__ 不是实际打点。
                 if tokens[j:j+1] == ["__VA_ARGS__"]:
                     continue
                 raise ValueError(f"{source}: {name} 仅支持字符串字面量参数")
-            key = path_hash(path)
-            if key in mapping and mapping[key] != path:
+            key = path_hash(path + (["@quantity", unit] if unit else []))
+            definition = dict(path=path, unit=unit) if unit else path
+            if key in mapping and mapping[key] != definition:
                 raise ValueError(f"事件哈希冲突：{mapping[key]} / {path}")
-            mapping[key] = path
+            mapping[key] = definition
     if not mapping:
         raise ValueError("没有找到语义打点")
     return mapping
@@ -65,32 +82,45 @@ def event_map(sources):
 
 def decode_capture(folder, mapping):
     meta = json.loads((folder / "capture.json").read_text())
-    if meta.get("schema") != "akl.semantic.v1" or meta.get("alignment") != "unverified":
+    if meta.get("schema") not in ("akl.semantic.v1", "akl.semantic.v2") or meta.get("alignment") != "unverified":
         raise ValueError("未知采集协议或时钟对齐状态")
     capacity, blocks = meta["capacity"], meta["blocks"]
     if any(type(meta.get(k)) is not int or meta[k] < 0 for k in ("rank", "device")):
         raise ValueError("rank/device 必须是非负整数")
     if type(capacity) is not int or capacity <= 0 or capacity % 2 or type(blocks) is not int or blocks <= 0:
         raise ValueError("容量或通道数非法")
-    words = 8 + 2 * capacity
+    version = 2 if meta["schema"].endswith("v2") else 1
+    stride = 4 if version == 2 else 2
+    words = 8 + stride * capacity
     raw = (folder / "trace.bin").read_bytes()
     if len(raw) != blocks * words * 8:
         raise ValueError("记录区长度不匹配")
     events, warnings = [], []
     for block, row in enumerate(struct.iter_unpack(f"<{words}Q", raw)):
-        if row[:2] != (MAGIC, 1) or row[7] != 1 or row[4] != block or row[2] > capacity:
+        if row[:2] != (MAGIC, version) or row[7] != 1 or row[4] != block or row[2] > capacity:
             raise ValueError(f"block {block} 未提交或 ABI 损坏")
         if row[3]:
             warnings.append(f"block {block}: dropped={row[3]}，仅展示保留前缀")
         previous, occurrences = -1, Counter()
         for seq in range(row[2]):
-            key, tick = row[8+2*seq:10+2*seq]
+            key, tick = row[8+stride*seq:10+stride*seq]
             if key not in mapping or tick < previous:
                 raise ValueError("事件映射不匹配或同核 cycle 回退")
+            definition = mapping[key]
+            path = definition['path'] if isinstance(definition, dict) else definition
+            work = None
+            if version == 2 and row[11+stride*seq]:
+                value, kind = row[10+stride*seq:12+stride*seq]
+                amount = value if kind == 1 else struct.unpack('<f', struct.pack('<I', value & 0xffffffff))[0]
+                if kind not in (1, 2) or not math.isfinite(amount) or amount < 0 or not isinstance(definition, dict):
+                    raise ValueError("处理量或单位非法")
+                work = dict(amount=str(amount), unit=definition['unit'],
+                            elapsed_cycle=str(tick-previous) if previous >= 0 else None)
             previous = tick
             occurrences[key] += 1
             events.append(dict(block=block, subblock=row[5], sequence=seq, event_id=key,
-                               occurrence=occurrences[key], tick=str(tick), path=mapping[key]))
+                               occurrence=occurrences[key], tick=str(tick), path=path))
+            if work is not None: events[-1]["work"] = work
     if not events:
         raise ValueError("没有已提交事件")
     return meta, events, warnings
@@ -119,6 +149,11 @@ def segment_color(index, level, duration, scale):
 def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
     if clock_mhz is not None and (not math.isfinite(clock_mhz) or clock_mhz <= 0):
         raise ValueError("clock MHz 必须是有限正数")
+    for event in events:
+        if 'work' in event:
+            work = event['work']
+            elapsed = int(work['elapsed_cycle']) * (1 / clock_mhz if clock_mhz else .001) if work['elapsed_cycle'] is not None else None
+            work.update(elapsed_us=elapsed, rate_per_us=float(work['amount'])/elapsed if elapsed else None)
     origin = min(int(e["tick"]) for e in events)
     extent = max(int(e["tick"]) - origin for e in events) or 1
     left, right = cycle_range if cycle_range is not None else (0, extent)
@@ -164,13 +199,18 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
                 title = html.escape(f'{" / ".join(prefix)} | seq={first}…{last} | '
                                     f'cycle={origin+start} → {origin+end} | Δcycle={end-start}'
                                     + (f' | Δµs={(end-start)/clock_mhz:.3f}' if clock_mhz else ''))
+                work = lane[first+1].get('work') if first == last and first+1 < len(lane) and level == len(lane[first]['path'])-1 else None
+                auxiliary = ''
+                if work:
+                    auxiliary = ' data-work="' + html.escape(json.dumps(work), quote=True) + '"'
+                    title += html.escape(f" | 处理量={work['amount']} {work['unit']} | 速度={work['rate_per_us'] if work['rate_per_us'] is not None else '不可计算'} {work['unit']}/us")
                 visible = (left <= start <= right) if start == end else (end > left and start < right)
                 x = 100 + 1040 * max(0, start-left) / span
                 width = 1040 * max(0, min(end, right)-max(start, left)) / span
                 color = segment_color(color_index, level, end-start, color_scale)
                 # 1px 仅作短区间可见性标记；真实时长保留在 title，完整标签供缩放后恢复。
                 label = html.escape(prefix[-1][:max(0, int(width/9)-1)])
-                svg.append((end-start, f'<g data-level="{level}" data-start="{start}" data-end="{end}" '
+                svg.append((end-start, f'<g{auxiliary} data-level="{level}" data-start="{start}" data-end="{end}" '
                            f'data-label="{html.escape(prefix[-1], quote=True)}" data-path="{html.escape(" / ".join(prefix), quote=True)}"'
                            + ('' if visible else ' style="display:none"') + f'><title>{title}</title>'
                            f'<rect x="{x}" y="{level*16}" width="{max(width, 1)}" height="14" '
@@ -181,8 +221,10 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
                      + ''.join(markup for _, markup in sorted(svg, key=lambda item: -item[0])))
         block_rows = []
         for event in lane:
+            work = event.get('work')
+            detail = f"{work['amount']} {work['unit']} / {work['elapsed_cycle']} cycle；{work['rate_per_us'] if work['rate_per_us'] is not None else '不可计算'} {work['unit']}/us" if work else '—'
             block_rows.append(f'<tr><td>{block}/{event["subblock"]}</td><td>{event["sequence"]}</td><td>{event["occurrence"]}</td>'
-                        f'<td>{event["tick"]}</td><td>{html.escape(" / ".join(event["path"]))}</td></tr>')
+                        f'<td>{event["tick"]}</td><td>{html.escape(" / ".join(event["path"]))}</td><td>{html.escape(detail)}</td></tr>')
         rows.append(''.join(block_rows))
     height = 8 + min(meta["blocks"], 8) * stride
     grid = ''.join(f'<line x1="{x}" x2="{x}" y1="0" y2="100%" stroke="#cbd5e1" stroke-dasharray="2 3"/>'
@@ -242,7 +284,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 </div></div><details id="counts-detail"><summary>打点次数（所选 block 的保留记录）</summary>
 <table><thead><tr><th>block/subblock</th><th>次数</th><th>语义路径</th></tr></thead><tbody id="counts-body"></tbody></table></details>
 <details id="events-detail"><summary>原始绝对 cycle（所选 block，整数）</summary>
-<table><thead><tr><th>block/subblock</th><th>序号</th><th>该点第几次</th><th>cycle</th><th>语义路径</th></tr></thead><tbody id="events-body"></tbody></table></details>
+<table><thead><tr><th>block/subblock</th><th>序号</th><th>该点第几次</th><th>cycle</th><th>语义路径</th><th>处理量 / 上次打点间隔 / 导出时速率</th></tr></thead><tbody id="events-body"></tbody></table></details>
 <script id="lane-data" type="application/json">{payload}</script>
 <script>{Path(__file__).with_name('timeline.js').read_text()}</script></html>'''
     (folder / "semantic.html").write_text(page)

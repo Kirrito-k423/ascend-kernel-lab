@@ -52,6 +52,8 @@ def write_capture(emit, capture_id, pid, meta, events, warnings, clock_mhz=None)
                               ts=(start-origin)*rate, args=dict(event, path=list(prefix), level=level,
                               leaf=level == len(event['path'])-1, end_tick=str(end), duration_cycle=str(end-start),
                               last_sequence=lane[last]['sequence']))
+                record['args']['point_work'] = event.get('work')
+                record['args']['work'] = lane[first+1].get('work') if first == last and first+1 < len(lane) and record['args']['leaf'] else None
                 record.update(dict(ph='X', dur=(end-start)*rate) if end > start else dict(ph='i', s='t'))
                 slices.append((start, -end, level, record))
         # Complete 事件须先外后内；同刻度按层级排序，不产生交叉嵌套。

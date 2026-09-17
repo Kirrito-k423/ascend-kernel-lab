@@ -96,7 +96,7 @@ def export_batch(root, output, mapping, sources, clock_mhz=None, cycle_range=Non
                 runs.append(run)
                 print(f"[{len(runs)}/{len(captures)}] {relative}: {run['status']}", flush=True)
         # 汇总整数也用十进制字符串，避免浏览器读取 >2^53 的累计值时丢精度。
-        stats = [dict(rank=rank, event_id=key, path=mapping[key], **{
+        stats = [dict(rank=rank, event_id=key, path=mapping[key]['path'] if isinstance(mapping[key], dict) else mapping[key], **{
             k: str(v) if v is not None else None for k, v in stat.items()})
             for (rank, key), stat in sorted(totals.items())]
         report = dict(schema=SCHEMA, clock_mhz=clock_mhz, cycle_range=cycle_range, runs=runs, stats=stats)
