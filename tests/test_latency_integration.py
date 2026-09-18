@@ -32,8 +32,10 @@ class Integration(unittest.TestCase):
         script=REPO/'test/analyze_dispatch_time.py'
         subprocess.run([os.sys.executable,str(script),'--help'],check=True,stdout=subprocess.DEVNULL)
         source=(REPO/'kernels/elastic_dispatch.cpp').read_bytes()
-        for old in [b'elastic_dispatch_clock_host.h',b'elastic_dispatch_latency_host.h',b'utils/debug/asc_printf.h',b'debug_clock::']:
+        for old in [b'elastic_dispatch_clock_host.h',b'elastic_dispatch_latency_host.h',b'utils/debug/asc_printf.h',b'debug_clock::',b'AKL_TRACE_PARAM',b'AKL_TRACE_ARG']:
             self.assertNotIn(old,source)
+        self.assertEqual(source.count(b'uint64_t ffts_addr,\r\n    GM_ADDR trace_output)'),2)
+        self.assertEqual(source.count(b'ffts_addr, trace_output);'),3)
         self.assertNotRegex(source,rb'DebugClock\(\d')
         self.assertIn(b'"URMASendTokenGroup", "simt_nw_mj", "complete", wqeCount, "WQE"',source)
         self.assertEqual(source.count(b'\n'),source.count(b'\r\n'))
