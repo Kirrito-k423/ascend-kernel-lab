@@ -8,7 +8,7 @@ import tempfile
 
 class LatencyProfile:
     def __init__(self, group, begin, end, abort, output, warmup=10,
-                 synchronize_start=True, collective=None):
+                 synchronize_start=True, collective=None, trace_enabled=None):
         if collective is None:
             import torch.distributed as collective
         self.dist = collective
@@ -16,6 +16,11 @@ class LatencyProfile:
         self.warmup = warmup
         self.synchronize_start = synchronize_start
         self.output = Path(output)
+        paired_output = os.getenv('AKL_LATENCY_OUTPUT_DIR')
+        if paired_output:
+            self.output = Path(paired_output) / self.output.name
+        self._trace_enabled = trace_enabled
+        self.trace_mode = ''
         self._begin, self._end, self._abort = begin, end, abort
         self.samples = []
         self._active = False
@@ -31,7 +36,17 @@ class LatencyProfile:
             error = 'warmup must be a nonnegative integer'
         if type(self.synchronize_start) is not bool:
             error = 'synchronize_start must be bool'
-        settings = self._all((error, self.warmup, self.synchronize_start))
+        try:
+            enabled = self._trace_enabled() if self._trace_enabled else None
+            if enabled is not None and type(enabled) is not bool:
+                raise ValueError('trace_enabled must return bool')
+            self.trace_mode = '' if enabled is None else ('ON' if enabled else 'OFF')
+            expected = os.getenv('AKL_TRACE_MODE')
+            if expected and (expected not in ('ON', 'OFF') or self.trace_mode != expected):
+                raise ValueError(f'loaded kernel trace mode {self.trace_mode or "unknown"}, expected {expected}')
+        except Exception as caught:
+            error = error or f'{type(caught).__name__}: {caught}'
+        settings = self._all((error, self.warmup, self.synchronize_start, self.trace_mode))
         if any(value[0] for value in settings):
             raise ValueError(f'invalid profiling settings: {settings}')
         if any(value != settings[0] for value in settings):
@@ -88,18 +103,20 @@ class LatencyProfile:
         return False
 
     def _write(self, results):
+        if os.getenv('AKL_TRACE_MODE') and self.output.exists():
+            raise FileExistsError(f'paired measurement requires one profiling session per run: {self.output}')
         self.output.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(mode='w', newline='', dir=self.output.parent, delete=False) as stream:
                 temporary = Path(stream.name)
                 writer = csv.writer(stream)
-                writer.writerow(['rank', 'iteration', 'elapsed_ms', 'elapsed_us', 'is_warmup', 'in_average'])
+                writer.writerow(['rank', 'iteration', 'elapsed_ms', 'elapsed_us', 'is_warmup', 'in_average', 'trace_mode'])
                 for i in range(len(results[0]['samples'])):
                     for rank, result in enumerate(results):
                         ms = result['samples'][i]
                         warmup = i < self.warmup
-                        writer.writerow([rank, i, f'{ms:.9f}', f'{ms * 1000:.9f}', int(warmup), int(not warmup)])
+                        writer.writerow([rank, i, f'{ms:.9f}', f'{ms * 1000:.9f}', int(warmup), int(not warmup), self.trace_mode])
             os.replace(temporary, self.output)
         finally:
             if temporary is not None:

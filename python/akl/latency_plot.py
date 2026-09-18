@@ -233,7 +233,8 @@ def load_latency_rows(csv_path: Path) -> List[dict]:
     return rows
 
 
-def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: int = 5) -> Tuple[Dict[int, float], int]:
+def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: int = 5,
+                 title: str = '', y_max: float = None) -> Tuple[Dict[int, float], int]:
     if last_n < 0:
         raise ValueError('last_n must be nonnegative; 0 selects all measured samples')
     rows_by_rank = defaultdict(list)
@@ -260,7 +261,7 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
     output_path.with_name(output_path.stem + '_summary.json').write_text(json.dumps(summary, indent=2), encoding='utf-8')
     ranks = sorted(rows_by_rank)
     max_iteration = max(r['iteration'] for r in rows)
-    max_us = max(r['elapsed_us'] for r in rows)
+    max_us = max(r['elapsed_us'] for r in rows) if y_max is None else y_max
     for offset in range(0, len(ranks), 128):
         page_ranks = ranks[offset:offset+128]
         # 独立图例区域每行8项、每页最多128个rank，避免图例遮挡或无限拉长图片。
@@ -303,7 +304,7 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
                        fontsize=8, frameon=False, columnspacing=1.2, handletextpad=0.3)
         page = offset//128 + 1
         window = f"last {last_n} measured/rank" if last_n else "all measured samples"
-        figure.suptitle(f"Latency / {csv_path.parent.name} / page {page}/{math.ceil(len(ranks)/128)} / experiment: all {len(ranks)} ranks / {window}")
+        figure.suptitle(f"Latency / {title or csv_path.parent.name} / page {page}/{math.ceil(len(ranks)/128)} / experiment: all {len(ranks)} ranks / {window}")
         target = output_path if not offset else output_path.with_name(f'{output_path.stem}_page{page}{output_path.suffix}')
         figure.savefig(target, dpi=160)
         figure.savefig(target.with_suffix('.svg'))
