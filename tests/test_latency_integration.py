@@ -34,6 +34,8 @@ class Integration(unittest.TestCase):
         source=(REPO/'kernels/elastic_dispatch.cpp').read_bytes()
         for old in [b'elastic_dispatch_clock_host.h',b'elastic_dispatch_latency_host.h',b'utils/debug/asc_printf.h',b'debug_clock::']:
             self.assertNotIn(old,source)
+        self.assertNotRegex(source,rb'DebugClock\(\d')
+        self.assertIn(b'"URMASendTokenGroup", "simt_nw_mj", "complete", wqeCount, "WQE"',source)
         self.assertEqual(source.count(b'\n'),source.count(b'\r\n'))
         self.assertLess(source.index(b'latency.Start(stream);'),source.index(b'elastic_dispatch_kernel<<<'))
         self.assertLess(source.index(b'elastic_dispatch_kernel<<<'),source.index(b'latency.Finish(stream);'))
