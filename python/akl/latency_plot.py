@@ -4,6 +4,7 @@ import csv
 import json
 import math
 from collections import defaultdict
+from itertools import groupby
 from pathlib import Path
 from statistics import mean
 from typing import Dict
@@ -269,6 +270,12 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
         metrics, axis, legends = [figure.add_subplot(grid[i]) for i in range(3)]
         metrics.axis('off')
         legends.axis('off')
+        warmup_iterations = sorted({r['iteration'] for rank in page_ranks for r in rows_by_rank[rank] if r['is_warmup']})
+        # 按实际标记合并相邻轮次；每轮占 iteration ± 0.5，不覆盖正式测量。
+        for index, (_, group) in enumerate(groupby(enumerate(warmup_iterations), lambda pair: pair[1]-pair[0])):
+            iterations = [iteration for _, iteration in group]
+            axis.axvspan(iterations[0]-0.5, iterations[-1]+0.5, color='#9ca3af', alpha=0.3, linewidth=0,
+                         zorder=0, label='Warmup (gray / x)' if index == 0 else None, gid=f'warmup-{index}')
         def rank_label(ids):
             return f"rank {ids[0]}" + (f" (+{len(ids)-1} tied)" if len(ids)>1 else '')
         for x, label, value, color in [(0.16, 'Fastest mean / '+rank_label(fast), fastest, '#b91c1c'),
@@ -280,14 +287,13 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
             color = matplotlib.colors.hsv_to_rgb(((i * 0.61803398875) % 1, 0.7, 0.75))
             axis.scatter([r['iteration'] for r in samples], [r['elapsed_us'] for r in samples],
                          s=18, alpha=0.7, color=color, label=f'Rank {rank}', zorder=3)
-            axis.axhline(rank_means[rank], color='red', linestyle='--', linewidth=0.7, alpha=0.25)
+            extreme = rank_means[rank] in (fastest, slowest)
+            axis.axhline(rank_means[rank], color='#b91c1c' if extreme else 'red', linestyle='--',
+                         linewidth=1.2 if extreme else 0.8, alpha=1 if extreme else 0.55, gid=f'rank-mean-{rank}')
             warmup = [r for r in samples if r['is_warmup']]
             axis.scatter([r['iteration'] for r in warmup], [r['elapsed_us'] for r in warmup],
                          marker='x', s=35, color=color, zorder=4)
-        axis.axhline(fastest, color='#b91c1c', linestyle='--', linewidth=1.2)
-        axis.axhline(slowest, color='#b91c1c', linestyle='--', linewidth=1.2)
         axis.axhline(experiment, color='#7c3aed', linewidth=2, label='Experiment mean', zorder=5)
-        axis.scatter([], [], color='#64748b', marker='x', label='Warmup (excluded)')
         axis.set(xlabel='Iteration', ylabel='Latency (us)', xlim=(-0.5, max_iteration+0.5),
                  ylim=(0, max(1, max_us*1.08)))
         if max_iteration < 30:

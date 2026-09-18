@@ -29,7 +29,7 @@ function selectBlocks() {
         document.getElementById('lanes').innerHTML=selected.map(b=>`<g class="lane" data-block="${b}">${laneData[b].svg}</g>`).join('');
         segments=[...timeline.querySelectorAll('[data-start]')].map(g=>({
             g,start:BigInt(g.dataset.start),end:BigInt(g.dataset.end),rect:g.querySelector('rect'),label:g.querySelector('text'),
-            path:(g.dataset.path || g.dataset.label).toLowerCase(),title:g.querySelector('title'),base:g.querySelector('title').textContent.replace(/ \| (Δµs|处理量)=.*$/,'')
+            path:(g.dataset.path || g.dataset.label).toLowerCase(),title:g.querySelector('title'),base:g.querySelector('title').textContent.replace(/ \| Δµs=.*$/,'')
         }));
         layout(); tables(); draw();
         document.getElementById('block-status').textContent=`已绘制 ${selected.length} / ${laneData.length} 个 block`;
@@ -79,11 +79,6 @@ function draw() {
         s.label.setAttribute('x',x+3);
         s.label.textContent=s.g.dataset.label.slice(0,Math.max(0,Math.floor(width/9)-1));
         s.title.textContent=s.base+' | Δµs='+formatUs(s.end-s.start);
-        if(s.g.dataset.work) {
-            const w=JSON.parse(s.g.dataset.work), duration=Number(w.elapsed_cycle)*cycleUs;
-            s.title.textContent+=` | 处理量=${w.amount===null?'基线':w.amount} ${w.unit} | 速度=${duration>0?(Number(w.amount)/duration).toPrecision(6):'不可计算'} ${w.unit}/us`;
-            if('scope' in w) s.title.textContent+=` | index=${w.scope} 累计=${w.cumulative} | `+(w.start_tick===null?'首次探测：仅建立基线':`探测区间 cycle=${w.start_tick} → ${w.end_tick}；间隔=${w.elapsed_cycle} cycle (${duration} µs)`);
-        }
     }
     document.getElementById('from').value=left; document.getElementById('to').value=right;
     document.getElementById('window').textContent='窗口 Δcycle '+left+'…'+right+'（跨度 '+(right-left)+'）';
