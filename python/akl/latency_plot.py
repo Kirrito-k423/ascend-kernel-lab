@@ -232,13 +232,18 @@ def load_latency_rows(csv_path: Path) -> List[dict]:
     return rows
 
 
-def plot_latency(rows: List[dict], csv_path: Path, output_path: Path) -> Tuple[Dict[int, float], int]:
+def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: int = 5) -> Tuple[Dict[int, float], int]:
+    if last_n < 0:
+        raise ValueError('last_n must be nonnegative; 0 selects all measured samples')
     rows_by_rank = defaultdict(list)
     for row in rows:
         rows_by_rank[row['rank']].append(row)
     rank_means, counts = {}, {}
     for rank, samples in rows_by_rank.items():
-        measured = [r['elapsed_us'] for r in samples if r['in_average'] and not r['is_warmup']]
+        measured = [r['elapsed_us'] for r in sorted(samples, key=lambda r: r['iteration'])
+                    if r['in_average'] and not r['is_warmup']]
+        if last_n:
+            measured = measured[-last_n:]
         if not measured:
             raise ValueError(f"Rank {rank} has no measured samples")
         rank_means[rank], counts[rank] = mean(measured), len(measured)
@@ -247,7 +252,7 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path) -> Tuple[D
     fastest, slowest = min(rank_means.values()), max(rank_means.values())
     fast = [r for r in sorted(rank_means) if rank_means[r] == fastest]
     slow = [r for r in sorted(rank_means) if rank_means[r] == slowest]
-    summary = dict(experiment_us=experiment, definition='unweighted mean of measured rank means',
+    summary = dict(experiment_us=experiment, definition='unweighted mean of rank means over selected non-warmup samples', last_n=last_n,
                    rank_means_us=rank_means, measured_counts=counts,
                    fastest=dict(ranks=fast, mean_us=fastest), slowest=dict(ranks=slow, mean_us=slowest))
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -291,7 +296,8 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path) -> Tuple[D
         legends.legend(*axis.get_legend_handles_labels(), loc='center', ncol=8,
                        fontsize=8, frameon=False, columnspacing=1.2, handletextpad=0.3)
         page = offset//128 + 1
-        figure.suptitle(f"Latency / {csv_path.parent.name} / page {page}/{math.ceil(len(ranks)/128)} / experiment: all {len(ranks)} ranks")
+        window = f"last {last_n} measured/rank" if last_n else "all measured samples"
+        figure.suptitle(f"Latency / {csv_path.parent.name} / page {page}/{math.ceil(len(ranks)/128)} / experiment: all {len(ranks)} ranks / {window}")
         target = output_path if not offset else output_path.with_name(f'{output_path.stem}_page{page}{output_path.suffix}')
         figure.savefig(target, dpi=160)
         figure.savefig(target.with_suffix('.svg'))
@@ -309,7 +315,7 @@ def main() -> None:
         help="Run directory containing dispatch_clock/ or a directory containing the CSV files directly.",
     )
     parser.add_argument("--file-prefix", default=DEFAULT_FILE_PREFIX, help="Clock CSV file prefix.")
-    parser.add_argument("--slots", type=int, default=11, help="Number of time columns to analyze.")
+    parser.add_argument("--slots", type=int, default=20, help="Number of time columns to analyze.")
     parser.add_argument("--cycle-us", type=float, default=0.001, help="Microseconds per cycle.")
     parser.add_argument(
         "--out-dir",
@@ -328,6 +334,7 @@ def main() -> None:
         default=DEFAULT_LATENCY_FILE,
         help=f"Latency CSV filename (default: {DEFAULT_LATENCY_FILE}).",
     )
+    parser.add_argument("--last-n", type=int, default=5, help="Average the last N non-warmup samples per rank; 0 uses all (default: 5).")
     parser.add_argument("--skip-clock", action="store_true", help="Skip clock CSV analysis.")
     parser.add_argument("--skip-latency", action="store_true", help="Skip latency CSV analysis.")
     args = parser.parse_args()
@@ -340,6 +347,8 @@ def main() -> None:
         raise NotADirectoryError(f"Input directory does not exist: {input_dir}")
 
     out_dir = Path(args.out_dir).expanduser().resolve() if args.out_dir else input_dir / "plots"
+    if args.last_n < 0:
+        raise ValueError('last-n must be nonnegative')
     if args.slots <= 0 or not math.isfinite(args.cycle_us) or args.cycle_us <= 0:
         raise ValueError('slots and cycle-us must be positive (cycle-us finite)')
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -381,7 +390,7 @@ def main() -> None:
             latency_plot = out_dir / "dispatch_latency_scatter.png"
             latency_rows = load_latency_rows(latency_csv)
             latency_means, measured_sample_count = plot_latency(
-                latency_rows, latency_csv, latency_plot
+                latency_rows, latency_csv, latency_plot, last_n=args.last_n
             )
             analyzed_anything = True
 
