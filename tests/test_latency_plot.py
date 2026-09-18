@@ -37,6 +37,16 @@ class Plot(unittest.TestCase):
             self.assertEqual(summary['slowest']['mean_us'],243+n-1)
             self.assertEqual(len(list(folder.glob('*.png'))),(n+127)//128)
 
+    def test_trailing_window(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'p.png'
+            rows=[dict(rank=0,iteration=i,elapsed_us=i,is_warmup=i<2,in_average=True) for i in reversed(range(12))]
+            with patch.object(plt.Figure,'savefig'):
+                for n,count,value in [(5,5,9),(0,10,6.5),(30,10,6.5)]:
+                    means,total=plot_latency(rows,path,path,last_n=n)
+                    self.assertEqual((means[0],total),(value,count))
+                with self.assertRaises(ValueError):plot_latency(rows,path,path,last_n=-1)
+
     def test_equal_rank_weight_and_bad_samples(self):
         with tempfile.TemporaryDirectory() as d:
             folder=Path(d);path=folder/'dispatch_latency.csv'
