@@ -2,7 +2,6 @@
 import json
 from collections import defaultdict
 from contextlib import contextmanager
-from itertools import groupby
 
 
 @contextmanager
@@ -34,26 +33,12 @@ def write_capture(emit, capture_id, pid, meta, events, warnings, clock_mhz=None)
     for tid, ((block, subblock), lane) in enumerate(sorted(lanes.items()), 1):
         emit(dict(ph='M', name='thread_name', pid=pid, tid=tid,
                   args=dict(name=f'block {block} / subblock {subblock}')))
-        slices = []
-        for level in range(max(len(event['path']) for event in lane)):
-            # 父路径只合并连续区间，叶子逐次保留；不猜测字符串里的 begin/end。
-            def key(item):
-                index, event = item
-                return tuple(event['path'][:level+1]), index if level >= len(event['path'])-1 else None
-            for (prefix, _), group in groupby(enumerate(lane), key=key):
-                indices = [index for index, _ in group]
-                if len(prefix) <= level:
-                    continue
-                first, last = indices[0], indices[-1]
-                event = lane[first]
-                start, end = int(event['tick']), int(lane[min(last+1, len(lane)-1)]['tick'])
-                # uint64 先做整数相减，避免绝对 tick 转浮点后丢失短区间。
-                record = dict(name=prefix[-1], cat='debugclock', pid=pid, tid=tid,
-                              ts=(start-origin)*rate, args=dict(event, path=list(prefix), level=level,
-                              leaf=level == len(event['path'])-1, end_tick=str(end), duration_cycle=str(end-start),
-                              last_sequence=lane[last]['sequence']))
-                record.update(dict(ph='X', dur=(end-start)*rate) if end > start else dict(ph='i', s='t'))
-                slices.append((start, -end, level, record))
-        # Complete 事件须先外后内；同刻度按层级排序，不产生交叉嵌套。
-        for _, _, _, record in sorted(slices, key=lambda item: item[:3]):
+        # 每条原始记录仅生成一个阶段，按同核相邻 tick 求差，不叠加父路径。
+        for index, event in enumerate(lane):
+            start = int(event['tick'])
+            end = int(lane[min(index+1, len(lane)-1)]['tick'])
+            record = dict(name=' / '.join(event['path']), cat='debugclock', pid=pid, tid=tid,
+                          ts=(start-origin)*rate, args=dict(event, level=0, leaf=True,
+                          end_tick=str(end), duration_cycle=str(end-start), last_sequence=event['sequence']))
+            record.update(dict(ph='X', dur=(end-start)*rate) if end > start else dict(ph='i', s='t'))
             emit(record)

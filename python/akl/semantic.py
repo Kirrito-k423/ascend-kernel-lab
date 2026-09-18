@@ -1,4 +1,4 @@
-"""语义字面量映射、原始 ABI 解码和分层 SVG/HTML；不推断 begin/end 或完成同步。"""
+"""语义字面量映射、原始 ABI 解码和单行 SVG/HTML；不推断 begin/end 或完成同步。"""
 import colorsys
 import html
 import json
@@ -6,7 +6,6 @@ import math
 import re
 import struct
 from collections import Counter, defaultdict
-from itertools import groupby
 from pathlib import Path
 
 from .chrome_trace import trace_file, write_capture
@@ -125,7 +124,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
     if any(type(v) is not int for v in (left, right)) or not 0 <= left < right <= extent:
         raise ValueError(f"cycle 范围须满足 0 <= 起点 < 终点 <= {extent}")
     span = right - left
-    depth = max(len(e["path"]) for e in events)
+    depth = 1
     stride = depth * 16 + 8
     ticks = sorted({left + span * i // 5 for i in range(6)})
     positions = [100 + 1040 * (tick-left) / span for tick in ticks]
@@ -148,34 +147,26 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
     for block in range(meta["blocks"]):
         lane = by_block.get(block, [])
         svg = []
-        for level in range(depth):
-            # 只合并连续的父路径；叶子保留每次命中，循环边界不消失。
-            def group_key(item):
-                index, event = item
-                prefix = tuple(event["path"][:level+1])
-                return prefix, index if level >= len(event["path"])-1 else None
-            for color_index, ((prefix, _), group) in enumerate(groupby(enumerate(lane), key=group_key)):
-                segment = list(group)
-                if len(prefix) <= level:
-                    continue
-                first, last = segment[0][0], segment[-1][0]
-                start = int(lane[first]["tick"]) - origin
-                end = int(lane[min(last+1, len(lane)-1)]["tick"]) - origin
-                title = html.escape(f'{" / ".join(prefix)} | seq={first}…{last} | '
-                                    f'cycle={origin+start} → {origin+end} | Δcycle={end-start}'
-                                    + (f' | Δµs={(end-start)/clock_mhz:.3f}' if clock_mhz else ''))
-                visible = (left <= start <= right) if start == end else (end > left and start < right)
-                x = 100 + 1040 * max(0, start-left) / span
-                width = 1040 * max(0, min(end, right)-max(start, left)) / span
-                color = segment_color(color_index, level, end-start, color_scale)
-                # 1px 仅作短区间可见性标记；真实时长保留在 title，完整标签供缩放后恢复。
-                label = html.escape(prefix[-1][:max(0, int(width/9)-1)])
-                svg.append((end-start, f'<g data-level="{level}" data-start="{start}" data-end="{end}" '
-                           f'data-label="{html.escape(prefix[-1], quote=True)}" data-path="{html.escape(" / ".join(prefix), quote=True)}"'
-                           + ('' if visible else ' style="display:none"') + f'><title>{title}</title>'
-                           f'<rect x="{x}" y="{level*16}" width="{max(width, 1)}" height="14" '
-                           f'fill="{color}" stroke="white" stroke-width="0"/>'
-                           f'<text x="{x+3}" y="{level*16+11}" font-size="11" fill="#111111">{label}</text></g>'))
+        for color_index, event in enumerate(lane):
+            first = last = color_index
+            level, prefix = 0, (" / ".join(event["path"]),)
+            start = int(lane[first]["tick"]) - origin
+            end = int(lane[min(last+1, len(lane)-1)]["tick"]) - origin
+            title = html.escape(f'{" / ".join(prefix)} | seq={first}…{last} | '
+                                f'cycle={origin+start} → {origin+end} | Δcycle={end-start}'
+                                + (f' | Δµs={(end-start)/clock_mhz:.3f}' if clock_mhz else ''))
+            visible = (left <= start <= right) if start == end else (end > left and start < right)
+            x = 100 + 1040 * max(0, start-left) / span
+            width = 1040 * max(0, min(end, right)-max(start, left)) / span
+            color = segment_color(color_index, level, end-start, color_scale)
+            # 1px 仅作短区间可见性标记；真实时长保留在 title，完整标签供缩放后恢复。
+            label = html.escape(prefix[-1][:max(0, int(width/9)-1)])
+            svg.append((end-start, f'<g data-level="{level}" data-start="{start}" data-end="{end}" '
+                       f'data-label="{html.escape(prefix[-1], quote=True)}" data-path="{html.escape(" / ".join(prefix), quote=True)}"'
+                       + ('' if visible else ' style="display:none"') + f'><title>{title}</title>'
+                       f'<rect x="{x}" y="{level*16}" width="{max(width, 1)}" height="14" '
+                       f'fill="{color}" stroke="white" stroke-width="0"/>'
+                       f'<text x="{x+3}" y="{level*16+11}" font-size="11" fill="#111111">{label}</text></g>'))
         # 短段后画，避免其最小宽度标记被相邻长段遮住。
         lanes.append(f'<text x="8" y="12">block {block}</text>'
                      + ''.join(markup for _, markup in sorted(svg, key=lambda item: -item[0])))
@@ -216,7 +207,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 <h1>语义 cycle 时间线 · rank {meta['rank']} / device {meta['device']}</h1>
 <a href="trace.json" download>下载 Chrome Trace JSON（导出时的换算设置，全量 block/区间）</a>
 <p>共同原始起点 {origin}；范围 Δcycle=0…{extent}；跨核对齐未验证。{warning}</p>
-<p>相邻区间跳色，短段颜色更深；颜色不表示父子关系，层级由纵向位置和标签表示。</p>
+<p>相邻区间跳色，短段颜色更深；每个 block 只显示一行阶段，不生成父子堆栈。</p>
 <p>每段表示该打点至下一个打点，末点仅作标记。移动鼠标对齐各 block，单击固定对齐线，再次单击解除。</p>
 <div class="controls">
 <button id="zoom-in">＋ 放大</button><button id="zoom-out">− 缩小</button>
@@ -225,7 +216,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 <label>终点 Δcycle <input id="to" type="text" inputmode="numeric" value="{right}"></label><button id="apply">应用范围</button>
 <span id="window"></span></div>
 <p>Ctrl/⌘＋滚轮以鼠标位置缩放；拖拽框选放大；Shift＋拖拽或滚轮平移。短段最小显示 1px，精确时长见悬停读数。</p>
-<div class="controls"><label>显示前 <input id="depth" type="number" min="1" max="{depth}" value="{depth}"> 级</label>
+<div class="controls"><label hidden>显示前 <input id="depth" type="number" min="1" max="{depth}" value="{depth}"> 级</label>
 <label>1 cycle = <input id="cycle-us" type="number" step="any" value="{1/clock_mhz if clock_mhz else 0.001}"> µs</label>
 <label>坐标轴单位 <select id="unit"><option value="cycle">cycle</option><option value="us">µs</option></select></label>
 <span id="conversion">显示换算，可按实际时钟调整</span></div>
