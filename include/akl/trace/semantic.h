@@ -10,17 +10,9 @@ __aicore__ constexpr uint32_t PathHash(uint32_t hash, const Char* part, Tail... 
     for (; *part; ++part) hash = (hash ^ static_cast<unsigned char>(*part)) * 16777619u;
     return PathHash(hash * 16777619u, tail...);
 }
-template<class Recorder>
-__aicore__ inline void Clock(Recorder& recorder, uint32_t hash) { recorder.Mark(hash); }
-template<class Recorder, typename Number, typename Char,
-         std::enable_if_t<std::is_arithmetic_v<Number> || std::is_same_v<Number, Counter>, int> = 0>
-__aicore__ inline void Clock(Recorder& recorder, uint32_t hash, Number amount, const Char* unit) {
-    recorder.Work(PathHash(hash, "@quantity", unit), amount);
 }
-template<class Recorder, typename Char, typename... Tail>
-__aicore__ inline void Clock(Recorder& recorder, uint32_t hash, const Char* part, Tail... tail) {
-    Clock(recorder, PathHash(hash, part), tail...);
-}
-}
-// 字符串字面量参与 ID；可选末尾为处理量表达式与单位字面量。
-#define AKL_DEBUG_CLOCK(recorder, ...) akl::Clock(recorder, 2166136261u, __VA_ARGS__)
+// 参数必须是非空 UTF-8 字符串字面量；编号为编译期常量，不在设备上处理字符串。
+#define AKL_DEBUG_CLOCK(recorder, ...) do { \
+    constexpr uint32_t akl_event_id = akl::PathHash(2166136261u, __VA_ARGS__); \
+    (recorder).Mark(akl_event_id); \
+} while (false)
