@@ -20,7 +20,7 @@ class Plot(unittest.TestCase):
             self.assertTrue(all(line.get_alpha()>=0.55 for line in means))
             self.assertEqual(len(chart.patches),1)
             bounds=chart.patches[0].get_path().get_extents(chart.patches[0].get_transform()-chart.transData)
-            self.assertAlmostEqual(bounds.x0,-0.5);self.assertAlmostEqual(bounds.x1,0.5)
+            self.assertAlmostEqual(bounds.x0,-0.5);self.assertAlmostEqual(bounds.x1,warmup_count-0.5)
             box=legends.get_legend().get_window_extent(renderer)
             self.assertFalse(box.overlaps(chart.get_window_extent(renderer)))
             self.assertGreaterEqual(box.x0,0);self.assertLessEqual(box.x1,fig.bbox.x1)
@@ -29,12 +29,13 @@ class Plot(unittest.TestCase):
             self.assertGreater(chart.get_ylim()[1],max(y for p in chart.collections for _,y in p.get_offsets()) if chart.collections else 0)
             return original(fig,path,*args,**kwargs)
         for n in [1,64,128,257]:
+            warmup_count = 10 if n == 64 else 1
             folder=ROOT/f'preview-{n}';folder.mkdir(exist_ok=True);csvpath=folder/'dispatch_latency.csv'
             with csvpath.open('w',newline='') as f:
                 w=csv.writer(f);w.writerow(['rank','iteration','elapsed_us','is_warmup','in_average'])
                 for rank in range(n):
-                    w.writerow([rank,0,1200,1,0])
-                    for it in range(1,6):w.writerow([rank,it,240+rank+it,0,1])
+                    for it in range(warmup_count):w.writerow([rank,it,1200,1,0])
+                    for it in range(warmup_count,warmup_count+5):w.writerow([rank,it,241+rank+it-warmup_count,0,1])
             rows=load_latency_rows(csvpath);output=folder/'dispatch_latency_scatter.png'
             with patch.object(plt.Figure,'savefig',checked):means,count=plot_latency(rows,csvpath,output)
             summary=json.loads(output.with_name('dispatch_latency_scatter_summary.json').read_text())
