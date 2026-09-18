@@ -56,6 +56,7 @@ PYTHONPATH="$AKL_ROOT/python" python3 -m akl.latency_plot   /path/to/exp01/dispa
 - 超过 128 rank 时继续生成 `_page2`、`_page3` 等 PNG/SVG；每页实验值均按全部 rank 计算。
 
 图例独立放在图外，每行最多 8 项；每页最多 128 个 rank，避免遮挡或图片过长。
+每个 rank 保留一条红色均值线（64 rank 即 64 条）；灰色背景覆盖 warmup 轮次，正式测量区保持白底。
 顶部标明最快/最慢 rank 均值，以及紫色实验均值；纵轴包含全部实际样本。
 预热用叉号表示，不参与平均。默认每 rank 取最后 5 个正式样本；不足 5 个取全部。
 传 `--last-n 0` 可取全部正式样本，`--last-n N` 取最后 N 个；窗口写入 summary JSON。

@@ -15,6 +15,12 @@ class Plot(unittest.TestCase):
         def checked(fig,path,*args,**kwargs):
             fig.canvas.draw();renderer=fig.canvas.get_renderer()
             chart,legends=fig.axes[1],fig.axes[2]
+            means=[line for line in chart.lines if (line.get_gid() or '').startswith('rank-mean-')]
+            self.assertEqual(len(means),sum(label.startswith('Rank ') for label in chart.get_legend_handles_labels()[1]))
+            self.assertTrue(all(line.get_alpha()>=0.55 for line in means))
+            self.assertEqual(len(chart.patches),1)
+            bounds=chart.patches[0].get_path().get_extents(chart.patches[0].get_transform()-chart.transData)
+            self.assertAlmostEqual(bounds.x0,-0.5);self.assertAlmostEqual(bounds.x1,0.5)
             box=legends.get_legend().get_window_extent(renderer)
             self.assertFalse(box.overlaps(chart.get_window_extent(renderer)))
             self.assertGreaterEqual(box.x0,0);self.assertLessEqual(box.x1,fig.bbox.x1)
