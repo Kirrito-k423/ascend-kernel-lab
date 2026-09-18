@@ -11,6 +11,9 @@ ON 编译/安装 → 新进程采样 → OFF 编译/安装 → 新进程采样 �
 沿用已有芯片、top-k、RDMA 参数。先准备好匹配的 SHMEM；下面为 A5/32 位索引示例：
 
 ```bash
+git clone --branch codex/latency-ab-compare https://gitcode.com/shaojiemike/ascend_deepep.git ascend_deepep-latency
+cd ascend_deepep-latency
+git submodule update --init --recursive
 source /usr/local/Ascend/cann/set_env.sh
 export EP_NUM_TOPK_IDX_BITS=32
 export AKL_ROOT="$PWD/3rdparty/ascend-kernel-lab"
