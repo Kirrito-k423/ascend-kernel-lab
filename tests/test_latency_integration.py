@@ -37,7 +37,7 @@ class Integration(unittest.TestCase):
         self.assertEqual(source.count(b'uint64_t ffts_addr,\r\n    GM_ADDR trace_output)'),2)
         self.assertEqual(source.count(b'ffts_addr, trace_output);'),3)
         self.assertNotRegex(source,rb'DebugClock\(\d')
-        self.assertIn(b'"URMASendTokenGroup", "simt_nw_mj", "complete", wqeCount, "WQE"',source)
+        self.assertNotIn(b'akl::Counter',source);self.assertNotIn(b'group == 0U && laneOff == 0U',source)
         self.assertEqual(source.count(b'\n'),source.count(b'\r\n'))
         self.assertLess(source.index(b'latency.Start(stream);'),source.index(b'elastic_dispatch_kernel<<<'))
         self.assertLess(source.index(b'elastic_dispatch_kernel<<<'),source.index(b'latency.Finish(stream);'))
