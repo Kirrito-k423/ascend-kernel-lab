@@ -9,9 +9,31 @@
 #include <string>
 #include <memory>
 #include <cstring>
+#include <cstdlib>
+#include <map>
+#include <mutex>
 #include <unistd.h>
 
 namespace akl {
+namespace detail {
+inline std::atomic<uint64_t> captureSequence{0};
+inline void KeepLastCapture(const std::filesystem::path& folder, uint64_t launch) {
+    static std::mutex mutex;
+    static std::map<std::filesystem::path, std::pair<uint64_t, std::filesystem::path>> latest;
+    const auto location = std::filesystem::weakly_canonical(folder);
+    const auto name = location.filename().string();
+    const auto key = location.parent_path() / name.substr(0, name.rfind("-launch"));
+    std::lock_guard<std::mutex> lock(mutex);
+    auto& previous = latest[key];
+    if (previous.second.empty()) { previous = {launch, location}; return; }
+    // 并发导出可能逆序完成；保留编号最大的完整采集，只删本进程登记过的文件。
+    const auto stale = launch > previous.first ? previous.second : location;
+    if (launch > previous.first) previous = {launch, location};
+    std::filesystem::remove(stale / "trace.bin");
+    std::filesystem::remove(stale / "capture.json");
+    if (std::filesystem::exists(stale) && std::filesystem::is_empty(stale)) std::filesystem::remove(stale);
+}
+}  // namespace detail
 // 每次 launch 独占 GM，析构前等待所属流，不能挪用业务 workspace。
 template<uint32_t Capacity = kCapacity>
 class Capture {
@@ -45,10 +67,12 @@ public:
         // ABI 仍为定长行，仅缩短所有 block 都未使用的尾部槽位。
         // 缺失/损坏行保留完整原始 buffer，交给离线校验报告，不能掩盖采集失败。
         uint32_t kept = 0;
+        bool valid = true;
         for (uint32_t b = 0; b < blocks_; ++b) {
             const auto* row = raw + size_t(b) * words;
             if (row[0] != kMagic || row[1] != 1 || row[7] != 1 || row[4] != b || row[2] > Capacity) {
                 kept = Capacity;
+                valid = false;
                 break;
             }
             if (row[2] > kept) kept = static_cast<uint32_t>(row[2]);
@@ -59,18 +83,22 @@ public:
         // 顺序向前紧凑排列，源/目标可能重叠，必须用 memmove。
         if (stored < Capacity) for (uint32_t b = 1; b < blocks_; ++b)
             std::memmove(raw + size_t(b) * storedWords, raw + size_t(b) * words, storedWords * 8);
-        static std::atomic<uint64_t> sequence{0};
+        uint64_t launch;
         std::filesystem::create_directories(root);
         std::filesystem::path folder;
         do {
+            launch = detail::captureSequence.fetch_add(1);
             folder = root / ("rank" + std::to_string(rank) + "-pid" + std::to_string(getpid()) +
-                "-launch" + std::to_string(sequence.fetch_add(1)));
+                "-launch" + std::to_string(launch));
         } while (!std::filesystem::create_directory(folder));
         Write(folder / "trace.bin", reinterpret_cast<const char*>(raw), size_t(blocks_) * storedWords * 8);
         const auto metadata = "{\"schema\":\"akl.semantic.v1\",\"capacity\":" + std::to_string(stored) + ",\"recorder_capacity\":" + std::to_string(Capacity) +
             ",\"blocks\":" + std::to_string(blocks_) + ",\"rank\":" + std::to_string(rank) +
             ",\"device\":" + std::to_string(device_) + ",\"alignment\":\"unverified\"}";
         Write(folder / "capture.json", metadata.data(), metadata.size());
+        const char* keepLast = std::getenv("AKL_TRACE_KEEP_LAST");
+        if (valid && kept && keepLast && std::strcmp(keepLast, "1") == 0)
+            detail::KeepLastCapture(folder, launch);
     }
 private:
     static void Check(aclError status) {
