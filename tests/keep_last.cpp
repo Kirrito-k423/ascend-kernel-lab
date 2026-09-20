@@ -16,13 +16,14 @@ size_t count(const path& root) {
 }
 int main(int argc, char** argv) {
     assert(argc==2); const path root = argv[1]; create_directories(root);
-    unsetenv("AKL_TRACE_KEEP_LAST");
+    setenv("AKL_TRACE_KEEP_LAST","0",1);
     for (int i=0; i<3; ++i) { akl::Capture<4> c(1,nullptr); fill(c); c.Export(root/"all",0); }
     assert(count(root/"all")==3);
-    setenv("AKL_TRACE_KEEP_LAST","1",1);
+    unsetenv("AKL_TRACE_KEEP_LAST");
     for (uint32_t rank=0; rank<2; ++rank)
         for (int i=0; i<20; ++i) { akl::Capture<4> c(1,nullptr); fill(c); c.Export(root/"last",rank); }
     assert(count(root/"last")==2);
+    setenv("AKL_TRACE_KEEP_LAST","1",1);
     // 业务文件保留；清理只涉及本进程登记的旧二进制与 metadata。
     for (const auto& folder : directory_iterator(root/"last")) std::ofstream(folder.path()/"notes.txt") << "keep";
     { akl::Capture<4> c(1,nullptr); fill(c); c.Export(root/"last",0); }
@@ -41,5 +42,5 @@ int main(int argc, char** argv) {
     for(const auto& p : {older,newer}) {create_directories(p);std::ofstream(p/"trace.bin") << "data";std::ofstream(p/"capture.json") << "meta";}
     akl::detail::KeepLastCapture(newer,2); akl::detail::KeepLastCapture(older,1);
     assert(exists(newer/"trace.bin")); assert(!exists(older));
-    std::cout << "PASS: default all; 20 exports x 2 ranks retain 2; corrupt/write failure retain prior; concurrent/reversed completion; user files preserved\n";
+    std::cout << "PASS: explicit 0 keeps all; default 20 exports x 2 ranks retain 2; explicit 1 keeps last; corrupt/write failure retain prior; concurrent/reversed completion; user files preserved\n";
 }
