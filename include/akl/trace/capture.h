@@ -97,7 +97,7 @@ public:
             ",\"device\":" + std::to_string(device_) + ",\"alignment\":\"unverified\"}";
         Write(folder / "capture.json", metadata.data(), metadata.size());
         const char* keepLast = std::getenv("AKL_TRACE_KEEP_LAST");
-        if (valid && kept && keepLast && std::strcmp(keepLast, "1") == 0)
+        if (valid && kept && (!keepLast || std::strcmp(keepLast, "0") != 0))
             detail::KeepLastCapture(folder, launch);
     }
 private:
