@@ -23,12 +23,25 @@ Atlas A2/A3 使用 `AKL_LATENCY_CLOCK_HZ=50000000` 和原芯片构建命令。
 bash scripts/parse_profiling.sh /shared/exp01
 ```
 
-输出 `dispatch_latency.csv` 和 `plots/dispatch_latency_scatter.png`、同名 SVG、
-`dispatch_latency_scatter_summary.json`。图片左轴为 us，右轴为 GB/s；圆点表示延迟，
-上三角表示处理吞吐率，下三角表示跨 rank 发送吞吐率，同一颜色对应同一 rank。
-保留灰色 warmup 区、每 rank 延迟均值红线、最快/最慢数值和实验均值线。
-右轴两条虚线分别标明两类吞吐率的实验均值；图例在图外换行，超过 128 rank 分页。
-旧 CSV 没有字节列时继续生成原延迟图，不猜测数据量。
+输出 `dispatch_latency.csv`，并在 `plots/` 分开生成两张图（均提供 PNG 和 SVG）：
+
+- `dispatch_latency_scatter`：延迟（us）。灰色 warmup 区、每 rank 均值红线、最快/最慢 rank 均值及实验均值继续保留。
+- `dispatch_bandwidth`：有效载荷吞吐率（GB/s），两个面板分别展示处理和跨 rank 发送，每个点对应一个 rank 的一次 launch。
+- `dispatch_latency_scatter_summary.json`：完整精度的统计，包括每轮最快/最慢 rank 列表、延迟及两类吞吐率。
+
+延迟图新增蓝色点划线：**每轮先取所有 rank 的最慢延迟，再对这些最慢值求平均**。
+它与“先求各 rank 的平均、再取最慢 rank”不同：两 rank 的耗时分别为 `[100,10]`、
+`[10,100]` us 时，最慢 rank 均值为 55 us，每轮最慢值的平均为 100 us。
+图上方同时标明这两个数值；X 轴下方按列对齐每次 launch 的最快、最慢、平均延迟，
+最快/最慢单元格另标 rank；`+` 表示并列，完整并列列表见 JSON。表格包含 warmup，灰底标识。
+跨轮统计排除 warmup，并使用 `--last-n` 选中的正式样本（默认最后 5 轮，`0` 表示全部）。
+新统计只纳入所有 rank 都存在且均被选中的轮次；不完整列用 `*` 标识，表内仅统计已有 rank，
+不纳入跨轮最慢均值；无完整选中轮次显示 N/A，JSON 为 null。
+
+图例在图外换行，超过 128 rank 分页；延迟图每页最多 20 个 launch，保证表格可读，
+均值与表格仍按全实验所有 rank 计算，其他页文件名带 `_pageN`。
+带宽每 rank 先算总字节/总时间、再对 rank 等权平均，紫线标出实验值。
+旧 CSV 没有字节列时只生成延迟图，不猜测数据量。
 
 ## 两种数据量
 
