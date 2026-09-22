@@ -48,5 +48,19 @@ PYTHONPATH="$AKL_ROOT/python" python3 -m akl.latency_plot \
   /path/to/dispatch_latency.csv --skip-clock --last-n 0
 ```
 
-已完成 CANN A5 编译和 CPU 合约/CSV/绘图回归。实际多卡的起点偏差、测量扰动及
-真实耗时差异仍需在空闲 NPU 上对照验证；模拟样本不是设备性能数据。
+已完成 CANN A5 编译和 CPU 合约/CSV/绘图回归。另在 A2 910B2 上实测 1/8 AIV：
+区间外增加合计约 2 ms 等待时，核内计时保持约 100/114 us，event 计时增加约 2 ms。
+这是受控等待探针，不是 DeepEP SHMEM 屏障或 A5 多卡实测；后者的起点偏差与扰动仍待验收。
+
+## 复现 A2 设备探针
+
+测试辅助 PR 提供 `tests/kernel_latency_probe.cpp`。先加载 CANN，确认目标设备空闲。
+以下例子用设备 0；替换为实际空闲设备。探针输出含预热，比较时丢弃前 3 轮。
+
+```bash
+bisheng -O2 -std=c++17 -xasc --npu-arch=dav-2201 \
+  -Iinclude -I"$ASCEND_HOME_PATH/include" tests/kernel_latency_probe.cpp \
+  -L"$ASCEND_HOME_PATH/lib64" -lascendcl -lruntime \
+  -Wl,-rpath,"$ASCEND_HOME_PATH/lib64" -o /tmp/akl-latency-probe
+AKL_LATENCY_CLOCK_HZ=50000000 /tmp/akl-latency-probe 0 > probe.csv
+```
