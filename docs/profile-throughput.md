@@ -26,7 +26,7 @@ bash scripts/parse_profiling.sh /shared/exp01
 输出 `dispatch_latency.csv`，并在 `plots/` 分开生成三张图（均提供 PNG 和 SVG）：
 
 - `dispatch_latency_scatter`：延迟（us）。灰色 warmup 区、每 rank 均值红线、最快/最慢 rank 均值及实验均值继续保留。
-- `dispatch_latency_launches`：每轮跨 rank 最慢／平均／最快各一个点，分别连成三条折线，独立查看整体变化；灰底标 warmup，黑叉标不完整 rank 覆盖。
+- `dispatch_latency_launches`：每轮跨 rank 最慢／平均／最快各一个点，分别连成三条折线，独立查看整体变化；灰底标 warmup，黑叉标不完整 rank 覆盖。有效轮次的最慢／最快点用星形高亮，标明 us、launch 和 rank；并列极值标最早一轮。
 - `dispatch_bandwidth`：有效载荷吞吐率（GB/s），两个面板分别展示处理和跨 rank 发送，每个点对应一个 rank 的一次 launch。
 - `dispatch_latency_scatter_summary.json`：完整精度的统计，包括每轮最快/最慢 rank 列表、延迟及两类吞吐率。
 
