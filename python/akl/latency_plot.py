@@ -396,6 +396,23 @@ def _plot_launch_latency(launches, rank_count, csv_path, latency_path, boundary)
     axis.set(xlabel='Launch / iteration', ylabel='Latency (us)', ylim=(0, None),
              xlim=(iterations[0]-.5, iterations[-1]+.5),
              title=f'Per-launch latency / {csv_path.parent.name} / {rank_count} ranks (available samples per launch)\n{boundary}')
+    valid = [i for i in iterations if launches[i]['selected']]
+    if valid:
+        axis.set_ylim(top=max(1, max(v['max_us'] for v in launches.values()) * 1.28))
+        # 与跨轮均值使用同一有效集合；并列极值标最早一轮，原始 rank 列表保留在 JSON。
+        for name, choose, label, color, offset in [('max', max, 'Slowest', '#c2410c', .18),
+                ('min', min, 'Fastest', '#0f766e', -.18)]:
+            iteration = choose(valid, key=lambda i: launches[i][name+'_us'])
+            value, ids = launches[iteration][name+'_us'], launches[iteration][name+'_ranks']
+            axis.scatter([iteration], [value], s=220, marker='*', color=color, edgecolors='black',
+                         linewidths=.8, zorder=6, gid='selected-'+name)
+            note = f'{label} valid: {value:.3f} us\nLaunch {iteration} / rank {ids[0]}' + (' (+ties)' if len(ids)>1 else '')
+            x = (iteration-iterations[0]+.5) / (iterations[-1]-iterations[0]+1)
+            y = min(.97, max(.14, value/axis.get_ylim()[1]+offset))
+            axis.annotate(note, xy=(iteration, value), xytext=(x,y), textcoords='axes fraction',
+                          ha='left' if x<.5 else 'right', va='top', color=color, fontsize=10, zorder=7,
+                          bbox=dict(boxstyle='round,pad=.4', fc='white', ec=color),
+                          arrowprops=dict(arrowstyle='->', color=color), gid='selected-'+name+'-label')
     if len(iterations) <= 30:
         axis.set_xticks(iterations)
     else:
