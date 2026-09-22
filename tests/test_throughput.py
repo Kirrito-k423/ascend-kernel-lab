@@ -59,10 +59,10 @@ class Throughput(unittest.TestCase):
             plot_latency(rows,path,image,last_n=0)
             summary=json.loads((root/'latency_summary.json').read_text())
             overview=(root/'dispatch_latency_launches.svg').read_text()
-            for label in ('launch-max','launch-mean','launch-min','Slowest','Mean','Fastest','launch-warmup-0'):
+            for label in ('launch-max','launch-mean','launch-min','Slowest min: 100.000 us','Mean','Fastest max: 10.000 us','launch-warmup-0'):
                 self.assertIn(label,overview)
-            self.assertIn('Slowest valid: 100.000 us',overview)
-            self.assertIn('Fastest valid: 10.000 us',overview)
+            self.assertIn('Slowest max: 100.000 us',overview)
+            self.assertIn('Fastest min: 10.000 us',overview)
             self.assertTrue((root/'dispatch_latency_launches.png').is_file())
             self.assertNotIn('rank-mean-',overview)
             self.assertEqual(summary['slowest']['mean_us'],55)
@@ -84,7 +84,7 @@ class Throughput(unittest.TestCase):
             self.assertTrue((root/'latency_page2.png').is_file())
             self.assertEqual(json.loads((root/'latency_summary.json').read_text())['mean_launch_max_us'],21)
             overview=(root/'dispatch_latency_launches.svg').read_text()
-            for label in ('Slowest valid: 21.000 us','Fastest valid: 21.000 us'):
+            for label in ('Slowest max: 21.000 us','Fastest min: 21.000 us'):
                 self.assertIn(label,overview)
 
     def test_undefined_and_invalid(self):
