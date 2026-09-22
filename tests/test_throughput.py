@@ -58,6 +58,11 @@ class Throughput(unittest.TestCase):
                 for rank,values in enumerate(((1000,100,10),(2000,10,100))) for i,us in enumerate(values)]
             plot_latency(rows,path,image,last_n=0)
             summary=json.loads((root/'latency_summary.json').read_text())
+            overview=(root/'dispatch_latency_launches.svg').read_text()
+            for label in ('launch-max','launch-mean','launch-min','Slowest','Mean','Fastest','launch-warmup-0'):
+                self.assertIn(label,overview)
+            self.assertTrue((root/'dispatch_latency_launches.png').is_file())
+            self.assertNotIn('rank-mean-',overview)
             self.assertEqual(summary['slowest']['mean_us'],55)
             self.assertEqual(summary['mean_launch_max_us'],100)
             self.assertEqual(summary['complete_selected_launches'],2)
@@ -69,6 +74,7 @@ class Throughput(unittest.TestCase):
             plot_latency(rows,path,image,last_n=0)
             summary=json.loads((root/'latency_summary.json').read_text())
             self.assertEqual(summary['mean_launch_max_us'],100)
+            self.assertIn('Incomplete rank coverage',(root/'dispatch_latency_launches.svg').read_text())
             self.assertEqual(summary['complete_selected_launches'],1)
             self.assertFalse(summary['launches']['2']['selected'])
             rows=[dict(rank=0,iteration=i*2,elapsed_us=i+1,is_warmup=False,in_average=True) for i in range(21)]
