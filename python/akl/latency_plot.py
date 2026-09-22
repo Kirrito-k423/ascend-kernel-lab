@@ -227,7 +227,8 @@ def load_latency_rows(csv_path: Path) -> List[dict]:
                 raise ValueError(f"{csv_path}:{line}: duplicate rank/iteration")
             seen.add((rank, iteration))
             rows.append(dict(rank=rank, iteration=iteration, elapsed_us=us,
-                             is_warmup=bool(warmup), in_average=bool(included)))
+                             is_warmup=bool(warmup), in_average=bool(included),
+                             measurement=item.get("measurement", "unspecified"), clock_hz=item.get("clock_hz", "")))
     if not rows:
         raise ValueError(f"{csv_path} contains no latency rows")
     return rows
@@ -236,6 +237,12 @@ def load_latency_rows(csv_path: Path) -> List[dict]:
 def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: int = 5) -> Tuple[Dict[int, float], int]:
     if last_n < 0:
         raise ValueError('last_n must be nonnegative; 0 selects all measured samples')
+    clocks = {(r.get("measurement", "unspecified"), r.get("clock_hz", "")) for r in rows}
+    if len(clocks) != 1:
+        raise ValueError("mixed latency measurement modes or clock frequencies")
+    mode, hz = next(iter(clocks))
+    boundary = {"kernel": f"max per-AIV / outer barriers excluded / SYS_CNT {hz} Hz",
+                "event": "whole kernel / outer barriers included"}.get(mode, "unspecified legacy boundary")
     rows_by_rank = defaultdict(list)
     for row in rows:
         rows_by_rank[row['rank']].append(row)
@@ -303,7 +310,7 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
                        fontsize=8, frameon=False, columnspacing=1.2, handletextpad=0.3)
         page = offset//128 + 1
         window = f"last {last_n} measured/rank" if last_n else "all measured samples"
-        figure.suptitle(f"Latency / {csv_path.parent.name} / page {page}/{math.ceil(len(ranks)/128)} / experiment: all {len(ranks)} ranks / {window}")
+        figure.suptitle(f"Latency / {csv_path.parent.name} / page {page}/{math.ceil(len(ranks)/128)} / experiment: all {len(ranks)} ranks / {window}\n{boundary}")
         target = output_path if not offset else output_path.with_name(f'{output_path.stem}_page{page}{output_path.suffix}')
         figure.savefig(target, dpi=160)
         figure.savefig(target.with_suffix('.svg'))
