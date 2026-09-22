@@ -1,0 +1,52 @@
+# 屏障内 latency：只测两个外层同步之间的工作
+
+DeepEP 当前在主 kernel 入口、出口调用跨卡屏障。ACL event 包住整个 kernel，
+所以会包含两端屏障等待。新的 `kernel` 模式保留屏障，在入口屏障返回后读起点，
+业务流水排空后、出口屏障开始前读终点；数据写回和 Host 拷回都在该区间外。
+
+每个 rank 的 latency = `max_AIV(end_tick - start_tick) / SYS_CNT频率`。
+先在每个 AIV 内做整数减法，不相减跨卡或不同 AIV 的原始时间戳。
+它是屏障内最慢 AIV 的区间耗时，不是整个分布式调用的墙钟耗时，也不保证屏障释放绝对同时。
+业务内部等待、初始化及开启 DebugClock 后的设备端打点/flush 开销仍计入。
+
+## 使用
+
+更新使用仓的子模块并重编译，沿用原芯片和 top-k 配置。无需开启 DEBUG_CLOCK_ON。
+在所有节点设置相同的计时模式和系统计数器频率，然后使用原来的 `--profile` 流程：
+
+```bash
+export AKL_LATENCY_MODE=kernel              # 默认
+export AKL_LATENCY_CLOCK_HZ=1000000000      # 仅 Ascend950：1 GHz
+bash scripts/run_v2_elastic_dispatch_precision_multi_node.sh
+```
+
+Atlas A2/A3 的 SYS_CNT 按官方说明使用 `50000000` Hz。这些数值是目标芯片的
+系统计数器频率，不能使用 AI Core 主频，也不能沿用可视化的 cycle→us 默认值。
+未提供有效频率时，profiling 会话在启动被测 kernel 前集体报错，不猜测换算系数。
+
+依据：[CANN 9.1 系统计数器说明](https://www.hiascend.com/document/detail/en/CANNCommunityEdition/910/API/ascendcopapi/docs/en/api/SIMD-API/C-API/sys_var/asc_get_system_cycle.md)。
+
+对照原来的整段 kernel 耗时：
+
+```bash
+export AKL_LATENCY_MODE=event
+# 使用另一组实验输出目录再运行；event 模式不需要 AKL_LATENCY_CLOCK_HZ。
+```
+
+Python `profile_dispatch_latency(..., synchronize_start=True)` 入口保留。
+当前业务 kernel 的入口/出口屏障始终执行，`synchronize_start=False` 不会关闭它们。
+不启用 profile 时不分配 latency buffer、不读取计时 tick。
+
+## CSV 与图片
+
+`dispatch_latency.csv` 的原有 elapsed_ms/us、warmup 和平均标记保留，追加
+`measurement`、`clock_hz` 列。旧解析器可继续使用原列，新图片明确显示计时边界；
+混合模式或不同频率的 CSV 拒绝合并，防止把不同口径误算成同一个实验均值。
+
+```bash
+PYTHONPATH="$AKL_ROOT/python" python3 -m akl.latency_plot \
+  /path/to/dispatch_latency.csv --skip-clock --last-n 0
+```
+
+已完成 CANN A5 编译和 CPU 合约/CSV/绘图回归。实际多卡的起点偏差、测量扰动及
+真实耗时差异仍需在空闲 NPU 上对照验证；模拟样本不是设备性能数据。
