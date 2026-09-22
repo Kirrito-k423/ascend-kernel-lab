@@ -26,7 +26,7 @@ class Throughput(unittest.TestCase):
                 str(root/'tests/throughput.cpp'),'-o',binary],check=True)
             subprocess.run([binary],check=True)
 
-    def test_csv_and_dual_axis(self):
+    def test_csv_and_separate_plots(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);csv_path=root/'latency.csv';image=root/'latency.png'
             profile=LatencyProfile(None,lambda *a:None,lambda:[10,.02,.04],lambda:None,csv_path,
@@ -40,12 +40,41 @@ class Throughput(unittest.TestCase):
             self.assertAlmostEqual(summary['throughput']['rank_gbps']['processed']['0'],4000000/60000)
             self.assertAlmostEqual(summary['throughput']['mean_gbps']['processed'],100)
             svg=image.with_suffix('.svg').read_text()
-            for label in ('Payload throughput (GB/s)','processed / right axis','sent / right axis','warmup-0','rank-mean-1'):
+            for label in ('warmup-0','rank-mean-1','mean-launch-max','Min us / rank','Max us / rank','Mean us'):
                 self.assertIn(label,svg)
+            self.assertNotIn('GB/s',svg)
+            bandwidth=(root/'dispatch_bandwidth.svg').read_text()
+            for label in ('Processed payload','Sent payload','GB/s','processed-mean-gbps'):
+                self.assertIn(label,bandwidth)
             plot_latency(rows,csv_path,image,last_n=1)
             self.assertEqual(json.loads((root/'latency_summary.json').read_text())['throughput']['mean_gbps']['processed'],112.5)
             rows[1]['work_kind']='other'
             with self.assertRaisesRegex(ValueError,'definitions'):plot_latency(rows,csv_path,image)
+
+    def test_launch_maxima_and_paging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);path=root/'latency.csv';image=root/'latency.png'
+            rows=[dict(rank=rank,iteration=i,elapsed_us=us,is_warmup=i==0,in_average=i!=0)
+                for rank,values in enumerate(((1000,100,10),(2000,10,100))) for i,us in enumerate(values)]
+            plot_latency(rows,path,image,last_n=0)
+            summary=json.loads((root/'latency_summary.json').read_text())
+            self.assertEqual(summary['slowest']['mean_us'],55)
+            self.assertEqual(summary['mean_launch_max_us'],100)
+            self.assertEqual(summary['complete_selected_launches'],2)
+            self.assertEqual(summary['launches']['1']['max_ranks'],[0])
+            self.assertEqual(summary['launches']['2']['max_ranks'],[1])
+            self.assertEqual([summary['launches']['1'][k] for k in ('min_us','max_us','mean_us')],[10,100,55])
+            self.assertFalse((root/'dispatch_bandwidth.png').exists())
+            rows.pop()  # Missing rank 1 at launch 2 must not lower the mean of complete-launch maxima.
+            plot_latency(rows,path,image,last_n=0)
+            summary=json.loads((root/'latency_summary.json').read_text())
+            self.assertEqual(summary['mean_launch_max_us'],100)
+            self.assertEqual(summary['complete_selected_launches'],1)
+            self.assertFalse(summary['launches']['2']['selected'])
+            rows=[dict(rank=0,iteration=i*2,elapsed_us=i+1,is_warmup=False,in_average=True) for i in range(21)]
+            plot_latency(rows,path,image,last_n=1)
+            self.assertTrue((root/'latency_page2.png').is_file())
+            self.assertEqual(json.loads((root/'latency_summary.json').read_text())['mean_launch_max_us'],21)
 
     def test_undefined_and_invalid(self):
         with tempfile.TemporaryDirectory() as directory:
