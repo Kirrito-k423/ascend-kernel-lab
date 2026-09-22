@@ -3,7 +3,8 @@
 
 namespace akl::latency {
 // 在业务 TPipe 已销毁且外层屏障结束后调用；写回成本不进入起止时间差。
-__aicore__ inline void WriteKernelLatency(GM_ADDR output, uint64_t start, uint64_t end) {
+__aicore__ inline void WriteKernelLatency(GM_ADDR output, uint64_t start, uint64_t end,
+    GM_ADDR work = nullptr, uint64_t processed_bytes = 0, uint64_t sent_bytes = 0) {
     if (!output) return;
     AscendC::TPipe pipe;
     AscendC::TBuf<AscendC::TPosition::VECCALC> buffer;
@@ -20,5 +21,16 @@ __aicore__ inline void WriteKernelLatency(GM_ADDR output, uint64_t start, uint64
     AscendC::DataCopy(destination[AscendC::GetBlockIdx() * 4], row, 4);
     AscendC::SetFlag<AscendC::HardEvent::MTE3_S>(EVENT_ID0);
     AscendC::WaitFlag<AscendC::HardEvent::MTE3_S>(EVENT_ID0);
+    if (work) {
+        // 独立 32B/block 计数区；复用已完成写出的 UB，不增加业务流水中的 DMA。
+        row.SetValue(0, processed_bytes);
+        row.SetValue(1, sent_bytes);
+        destination.SetGlobalBuffer(reinterpret_cast<__gm__ uint64_t*>(work));
+        AscendC::SetFlag<AscendC::HardEvent::S_MTE3>(EVENT_ID0);
+        AscendC::WaitFlag<AscendC::HardEvent::S_MTE3>(EVENT_ID0);
+        AscendC::DataCopy(destination[AscendC::GetBlockIdx() * 4], row, 4);
+        AscendC::SetFlag<AscendC::HardEvent::MTE3_S>(EVENT_ID0);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE3_S>(EVENT_ID0);
+    }
 }
 }  // namespace akl::latency
