@@ -26,7 +26,7 @@ bash scripts/parse_profiling.sh /shared/exp01
 输出 `dispatch_latency.csv`，并在 `plots/` 分开生成三张图（均提供 PNG 和 SVG）：
 
 - `dispatch_latency_scatter`：延迟（us）。灰色 warmup 区、每 rank 均值红线、最快/最慢 rank 均值及实验均值继续保留。
-- `dispatch_latency_launches`：每轮跨 rank 最慢／平均／最快各一个点，分别连成三条折线，独立查看整体变化；灰底标 warmup，黑叉标不完整 rank 覆盖。有效轮次的最慢／最快点用星形高亮，标明 us、launch 和 rank；并列极值标最早一轮。
+- `dispatch_latency_launches`：每轮跨 rank 最慢／平均／最快各一个点，分别连成三条折线，独立查看整体变化；灰底标 warmup，黑叉标不完整 rank 覆盖。Y 轴聚焦有效轮次，超出范围的预热／未选样本裁切；上、下曲线各自的最大值（星形）和最小值（菱形）共四处高亮，标明 us、launch 和 rank；并列标最早一轮。
 - `dispatch_bandwidth`：有效载荷吞吐率（GB/s），两个面板分别展示处理和跨 rank 发送，每个点对应一个 rank 的一次 launch。
 - `dispatch_latency_scatter_summary.json`：完整精度的统计，包括每轮最快/最慢 rank 列表、延迟及两类吞吐率。
 
@@ -34,6 +34,7 @@ bash scripts/parse_profiling.sh /shared/exp01
 它与“先求各 rank 的平均、再取最慢 rank”不同：两 rank 的耗时分别为 `[100,10]`、
 `[10,100]` us 时，最慢 rank 均值为 55 us，每轮最慢值的平均为 100 us。
 图上方同时标明这两个数值；X 轴下方按列对齐每次 launch 的最快、最慢、平均延迟，
+表格三行分别以非 warmup 数据归一化，低值浅绿、高值浅红，跨页共用同一行色阶；warmup 保持灰底。
 最快/最慢单元格另标 rank；`+` 表示并列，完整并列列表见 JSON。表格包含 warmup，灰底标识。
 跨轮统计排除 warmup，并使用 `--last-n` 选中的正式样本（默认最后 5 轮，`0` 表示全部）。
 新统计只纳入所有 rank 都存在且均被选中的轮次；不完整列用 `*` 标识，表内仅统计已有 rank，
