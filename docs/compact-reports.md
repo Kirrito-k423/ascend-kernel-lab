@@ -8,6 +8,7 @@
 ```bash
 git submodule update --init --recursive
 DEBUG_CLOCK_ON=ON EP_NUM_TOPK_IDX_BITS=32 bash scripts/build.sh -soc_type Ascend950
+export AKL_LATENCY_CLOCK_HZ=1000000000  # Ascend950；Atlas A2/A3 使用 50000000
 bash scripts/run_v2_elastic_dispatch_precision_multi_node.sh
 ```
 
@@ -39,6 +40,14 @@ export AKL_TRACE_KEEP_LAST=0
 每轮仍会同步拷回和写入；此策略节省磁盘，不消除打点或 D2H 耗时。
 
 ## 单独解析已有数据
+
+统一解析 latency 和打点报告（可用第二个参数指定独立 latency 目录）：
+
+```bash
+bash scripts/parse_profiling.sh /absolute/path/exp01
+```
+
+只解析打点并筛选最后一轮：
 
 ```bash
 export AKL_ROOT="$PWD/3rdparty/ascend-kernel-lab"
