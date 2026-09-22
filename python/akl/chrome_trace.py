@@ -42,3 +42,32 @@ def write_capture(emit, capture_id, pid, meta, events, warnings, clock_mhz=None)
                           end_tick=str(end), duration_cycle=str(end-start), last_sequence=event['sequence']))
             record.update(dict(ph='X', dur=(end-start)*rate) if end > start else dict(ph='i', s='t'))
             emit(record)
+
+
+def merge_traces(paths, output):
+    """拼接本工具生成的记录流，避免主进程再次解析/序列化所有事件。"""
+    prefix, suffix = b'{"traceEvents":[', b'],"displayTimeUnit":"ns"}'
+    with output.open('wb') as target:
+        target.write(prefix)
+        separator = b''
+        for path in paths:
+            with path.open('rb') as source:
+                if source.read(len(prefix)) != prefix:
+                    raise ValueError(f'{path}: invalid trace prefix')
+                if path.stat().st_size < len(prefix) + len(suffix):
+                    raise ValueError(f'{path}: truncated trace')
+                source.seek(-len(suffix), 2)
+                remaining = source.tell() - len(prefix)
+                if source.read() != suffix or remaining < 0:
+                    raise ValueError(f'{path}: invalid trace suffix')
+                source.seek(len(prefix))
+                if remaining:
+                    target.write(separator)
+                    separator = b',\n'
+                while remaining:
+                    chunk = source.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise ValueError(f'{path}: truncated trace')
+                    target.write(chunk)
+                    remaining -= len(chunk)
+        target.write(suffix)

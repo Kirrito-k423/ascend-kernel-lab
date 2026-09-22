@@ -6,7 +6,7 @@ body{font:14px system-ui;margin:20px;color:#183047;background:#f8fafc}h1{font-si
 <h1>语义打点 · 多 rank / launch 汇总</h1>
 <p id="overview"></p>
 <p>每次采集独立保留绝对 cycle。统计区间为同一 block 内相邻打点之差，末点只计次数；不对齐不同 rank 的时钟。launch 是进程内编号，不自动等同于跨 rank 的第几轮实验。</p>
-<nav><a href="result.zip" download>下载完整结果 ZIP</a><a href="summary.json" download>汇总 JSON</a><a href="events.jsonl" download>全部原始事件 JSONL</a><a href="trace.json" download>本 launch 的 Chrome Trace JSON</a></nav>
+<nav><!--ZIP--><a href="summary.json" download>汇总 JSON</a><a href="trace.json" download>本 launch 的 Chrome Trace JSON</a></nav>
 <div class="controls"><label>Rank <select id="rank"><option value="">全部</option></select></label><label>视图 <select id="mode"><option value="summary">汇总统计</option><option value="timeline">单次时间线</option></select></label></div>
 <section id="summary"><h2>采集分布</h2><div class="table"><table><thead><tr><th>rank</th><th>成功 / 失败</th><th>有丢弃告警</th><th>保留事件</th><th>核内首末点跨度 cycle（min…max）</th></tr></thead><tbody id="ranks"></tbody></table></div>
 <h2>语义路径汇总 · 当前 rank 范围</h2><p>次数仅统计保留记录；耗时是该点到下一点的区间，mean 为按区间次数加权均值，不是整轮业务耗时。</p><div class="table"><table><thead><tr><th>路径</th><th>次数</th><th>有效区间数</th><th>min cycle</th><th>mean cycle</th><th>max cycle</th></tr></thead><tbody id="stats"></tbody></table></div></section>

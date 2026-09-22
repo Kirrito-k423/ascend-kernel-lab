@@ -115,7 +115,8 @@ def segment_color(index, level, duration, scale):
     return '#' + ''.join(f'{round(c * 255):02x}' for c in rgb)
 
 
-def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
+def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None,
+           intermediates=True, trace_pid=1, capture_id=None):
     if clock_mhz is not None and (not math.isfinite(clock_mhz) or clock_mhz <= 0):
         raise ValueError("clock MHz 必须是有限正数")
     origin = min(int(e["tick"]) for e in events)
@@ -224,7 +225,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 <button id="apply-blocks">显示所选 block</button><button id="all-blocks">全部 block</button><span id="block-status"></span></div>
 <div class="controls"><label>搜索模块 <input id="search" type="search" style="width:260px" placeholder="完整语义路径中的关键词"></label>
 <button id="clear-search">清除搜索</button><span id="search-status" role="status"></span></div>
-<p>支持范围与逗号，例如 0-7,16,32-39。默认仅绘制前 8 个 block；统计表也只显示所选 block，完整记录仍在导出的 JSONL 中。</p>
+<p>支持范围与逗号，例如 0-7,16,32-39。默认仅绘制前 8 个 block；统计表也只显示所选 block，完整记录仍在 Chrome Trace JSON 中。</p>
 <div class="chart" tabindex="0" role="region" aria-label="block 时间线"><div class="canvas"><div class="ruler">{svg_open}id="axis" viewBox="0 0 1180 40">{ruler}</svg>
 <output id="readout" aria-live="off">移动鼠标读取 cycle</output></div>
 {svg_open}id="timeline" data-origin="{origin}" data-extent="{extent}" data-mhz="{clock_mhz or ''}" data-left="{left}" data-right="{right}" viewBox="0 0 1180 {height}"><g id="grid">{grid}</g><g id="lanes"></g>
@@ -238,12 +239,31 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None):
 <script>{Path(__file__).with_name('timeline.js').read_text()}</script></html>'''
     (folder / "semantic.html").write_text(page)
     (folder / "semantic.svg").write_text(drawing)
-    with (folder / "semantic.jsonl").open("w") as out:
-        for event in events:
-            out.write(json.dumps(dict(meta, launch_id=folder.name, **event), ensure_ascii=False) + "\n")
-    (folder / "counts.json").write_text(json.dumps(dict(counts=summary, warnings=warnings), indent=2))
+    if intermediates:
+        with (folder / "semantic.jsonl").open("w") as out:
+            for event in events:
+                out.write(json.dumps(dict(meta, launch_id=folder.name, **event), ensure_ascii=False) + "\n")
+        (folder / "counts.json").write_text(json.dumps(dict(counts=summary, warnings=warnings), indent=2))
     with trace_file(folder / 'trace.json') as emit:
-        write_capture(emit, folder.name, 1, meta, events, warnings, clock_mhz)
+        write_capture(emit, capture_id or folder.name, trace_pid, meta, events, warnings, clock_mhz)
+
+
+def capture_signature(folder):
+    return [(s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns)
+            for s in ((folder / name).stat() for name in ('trace.bin', 'capture.json'))]
+
+
+def clean_capture(folder, signature, remove_reports=False):
+    # 只清理本次成功解析且未再被写入的采集；不递归删除目录或业务文件。
+    if capture_signature(folder) != signature:
+        raise ValueError(f'{folder}: 采集已变化，保留输入，请重新解析')
+    names = ['trace.bin', 'capture.json', 'semantic.jsonl', 'counts.json']
+    if remove_reports:
+        names += ['semantic.html', 'semantic.svg', 'trace.json']
+    for name in names:
+        (folder / name).unlink(missing_ok=True)
+    if remove_reports and not any(folder.iterdir()):
+        folder.rmdir()
 
 
 
@@ -256,17 +276,28 @@ def main():
     parser.add_argument("--clock-mhz", type=float, help="用户确认的 cycle 时钟频率（MHz），用于 µs 刻度")
     parser.add_argument("--cycle-range", type=int, nargs=2, metavar=("START", "END"),
                         help="相对共同 origin 的 cycle 窗口；HTML 初始视图和 SVG 导出范围")
+    parser.add_argument("--jobs", type=int, default=64, help="批量解析进程数，默认 64；内存不足时调小")
+    parser.add_argument("--keep-intermediates", action="store_true", help="保留原始采集、JSONL 和 counts，便于重新解析")
+    parser.add_argument("--zip-launches", action="store_true", help="按需生成每个 launch 的独立 ZIP；不生成总 ZIP")
+    parser.add_argument("--last-launch", action="store_true", help="每个实验目录只解析编号最大的 launch；须覆盖全部已发现 rank")
     args = parser.parse_args()
+    if args.jobs <= 0:
+        parser.error("--jobs 必须是正整数")
     mapping = event_map(args.source)
     if not (args.capture / "capture.json").is_file():
         from .batch import export_batch
         failed = export_batch(args.capture, args.output or args.capture / "result", mapping,
-                              args.source, args.clock_mhz, args.cycle_range)
+                              args.source, args.clock_mhz, args.cycle_range,
+                              args.jobs, args.keep_intermediates, args.zip_launches, args.last_launch)
         raise SystemExit(1 if failed else 0)
     if args.output:
         parser.error("--output 仅用于父目录批量分析")
+    signature = capture_signature(args.capture)
     meta, events, warnings = decode_capture(args.capture, mapping)
-    render(args.capture, meta, events, warnings, args.clock_mhz, args.cycle_range)
+    render(args.capture, meta, events, warnings, args.clock_mhz, args.cycle_range,
+           intermediates=args.keep_intermediates)
+    if not args.keep_intermediates:
+        clean_capture(args.capture, signature)
     print(f"已导出 {len(events)} 个原始事件；{len(warnings)} 个丢弃告警；{args.capture / 'semantic.html'}")
 
 
