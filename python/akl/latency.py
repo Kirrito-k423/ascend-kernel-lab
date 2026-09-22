@@ -8,7 +8,7 @@ import tempfile
 
 class LatencyProfile:
     def __init__(self, group, begin, end, abort, output, warmup=10,
-                 synchronize_start=True, collective=None):
+                 synchronize_start=True, collective=None, metadata=None):
         if collective is None:
             import torch.distributed as collective
         self.dist = collective
@@ -16,6 +16,7 @@ class LatencyProfile:
         self.warmup = warmup
         self.synchronize_start = synchronize_start
         self.output = Path(output)
+        self.metadata = dict(metadata or {})
         self._begin, self._end, self._abort = begin, end, abort
         self.samples = []
         self._active = False
@@ -31,7 +32,7 @@ class LatencyProfile:
             error = 'warmup must be a nonnegative integer'
         if type(self.synchronize_start) is not bool:
             error = 'synchronize_start must be bool'
-        settings = self._all((error, self.warmup, self.synchronize_start))
+        settings = self._all((error, self.warmup, self.synchronize_start, self.metadata))
         if any(value[0] for value in settings):
             raise ValueError(f'invalid profiling settings: {settings}')
         if any(value != settings[0] for value in settings):
@@ -94,12 +95,12 @@ class LatencyProfile:
             with tempfile.NamedTemporaryFile(mode='w', newline='', dir=self.output.parent, delete=False) as stream:
                 temporary = Path(stream.name)
                 writer = csv.writer(stream)
-                writer.writerow(['rank', 'iteration', 'elapsed_ms', 'elapsed_us', 'is_warmup', 'in_average'])
+                writer.writerow(['rank', 'iteration', 'elapsed_ms', 'elapsed_us', 'is_warmup', 'in_average'] + list(self.metadata))
                 for i in range(len(results[0]['samples'])):
                     for rank, result in enumerate(results):
                         ms = result['samples'][i]
                         warmup = i < self.warmup
-                        writer.writerow([rank, i, f'{ms:.9f}', f'{ms * 1000:.9f}', int(warmup), int(not warmup)])
+                        writer.writerow([rank, i, f'{ms:.9f}', f'{ms * 1000:.9f}', int(warmup), int(not warmup)] + list(self.metadata.values()))
             os.replace(temporary, self.output)
         finally:
             if temporary is not None:
