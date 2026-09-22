@@ -214,6 +214,9 @@ def load_latency_rows(csv_path: Path) -> List[dict]:
             raise ValueError(
                 f"{csv_path} is missing columns: {', '.join(sorted(missing))}"
             )
+        work_fields = {'processed_bytes', 'sent_bytes'}
+        if fieldnames & work_fields and not work_fields <= fieldnames:
+            raise ValueError('both processed_bytes and sent_bytes are required')
         seen = set()
         for line, item in enumerate(reader, 2):
             rank, iteration, us = int(item['rank']), int(item['iteration']), float(item['elapsed_us'])
@@ -226,9 +229,13 @@ def load_latency_rows(csv_path: Path) -> List[dict]:
             if (rank, iteration) in seen:
                 raise ValueError(f"{csv_path}:{line}: duplicate rank/iteration")
             seen.add((rank, iteration))
+            work = {name: int(item[name]) for name in work_fields} if work_fields <= fieldnames else {}
+            if any(not 0 <= n <= 2**64-1 for n in work.values()):
+                raise ValueError(f'{csv_path}:{line}: invalid uint64 work bytes')
             rows.append(dict(rank=rank, iteration=iteration, elapsed_us=us,
                              is_warmup=bool(warmup), in_average=bool(included),
-                             measurement=item.get("measurement", "unspecified"), clock_hz=item.get("clock_hz", "")))
+                             measurement=item.get("measurement", "unspecified"), clock_hz=item.get("clock_hz", ""),
+                             work_kind=item.get("work_kind", "unspecified"), **work))
     if not rows:
         raise ValueError(f"{csv_path} contains no latency rows")
     return rows
@@ -246,12 +253,15 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
     rows_by_rank = defaultdict(list)
     for row in rows:
         rows_by_rank[row['rank']].append(row)
-    rank_means, counts = {}, {}
+    has_work = any('processed_bytes' in r or 'sent_bytes' in r for r in rows)
+    if has_work and (not all('processed_bytes' in r and 'sent_bytes' in r for r in rows) or
+                     len({r.get('work_kind', 'unspecified') for r in rows}) != 1):
+        raise ValueError('mixed or missing work byte definitions')
+    rank_means, counts, selected = {}, {}, {}
     for rank, samples in rows_by_rank.items():
-        measured = [r['elapsed_us'] for r in sorted(samples, key=lambda r: r['iteration'])
-                    if r['in_average'] and not r['is_warmup']]
-        if last_n:
-            measured = measured[-last_n:]
+        chosen = [r for r in sorted(samples, key=lambda r: r['iteration']) if r['in_average'] and not r['is_warmup']]
+        selected[rank] = chosen[-last_n:] if last_n else chosen
+        measured = [r['elapsed_us'] for r in selected[rank]]
         if not measured:
             raise ValueError(f"Rank {rank} has no measured samples")
         rank_means[rank], counts[rank] = mean(measured), len(measured)
@@ -263,6 +273,16 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
     summary = dict(experiment_us=experiment, definition='unweighted mean of rank means over selected non-warmup samples', last_n=last_n,
                    rank_means_us=rank_means, measured_counts=counts,
                    fastest=dict(ranks=fast, mean_us=fastest), slowest=dict(ranks=slow, mean_us=slowest))
+    rates = {}
+    if has_work:
+        # 变长工作量取总字节/总时间，不能平均每轮 GB/s；实验值仍按 rank 等权。
+        for name in ('processed', 'sent'):
+            rates[name] = {rank: sum(r[name+'_bytes'] for r in chosen) / (sum(r['elapsed_us'] for r in chosen) * 1000)
+                           if sum(r['elapsed_us'] for r in chosen) > 0 else None for rank, chosen in selected.items()}
+        summary['throughput'] = dict(unit='GB/s (10^9 bytes/s)', definition='per-rank sum(bytes)/sum(time); mean across ranks',
+            work_kind=rows[0].get('work_kind', 'unspecified'), rank_gbps=rates,
+            mean_gbps={name: mean(values.values()) if all(v is not None for v in values.values()) else None
+                       for name, values in rates.items()})
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.with_name(output_path.stem + '_summary.json').write_text(json.dumps(summary, indent=2), encoding='utf-8')
     ranks = sorted(rows_by_rank)
@@ -271,10 +291,13 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
     for offset in range(0, len(ranks), 128):
         page_ranks = ranks[offset:offset+128]
         # 独立图例区域每行8项、每页最多128个rank，避免图例遮挡或无限拉长图片。
-        legend_height = 0.24 * math.ceil((len(page_ranks)+2) / 8) + 0.2
+        legend_height = 0.24 * math.ceil((len(page_ranks)+(6 if has_work else 2)) / 8) + 0.2
         figure = plt.figure(figsize=(13, 6.8 + legend_height), layout='constrained')
         grid = figure.add_gridspec(3, 1, height_ratios=[0.6, 5.5, legend_height])
         metrics, axis, legends = [figure.add_subplot(grid[i]) for i in range(3)]
+        throughput_axis = axis.twinx() if has_work else None
+        if has_work:
+            throughput_axis.set_ylabel('Payload throughput (GB/s)')
         metrics.axis('off')
         legends.axis('off')
         warmup_iterations = sorted({r['iteration'] for rank in page_ranks for r in rows_by_rank[rank] if r['is_warmup']})
@@ -294,6 +317,12 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
             color = matplotlib.colors.hsv_to_rgb(((i * 0.61803398875) % 1, 0.7, 0.75))
             axis.scatter([r['iteration'] for r in samples], [r['elapsed_us'] for r in samples],
                          s=18, alpha=0.7, color=color, label=f'Rank {rank}', zorder=3)
+            if has_work:
+                timed = [r for r in samples if r['elapsed_us'] > 0]
+                for name, marker in [('processed', '^'), ('sent', 'v')]:
+                    throughput_axis.scatter([r['iteration'] for r in timed],
+                        [r[name+'_bytes'] / (r['elapsed_us'] * 1000) for r in timed],
+                        marker=marker, s=14, alpha=0.5, color=color)
             extreme = rank_means[rank] in (fastest, slowest)
             axis.axhline(rank_means[rank], color='#b91c1c' if extreme else 'red', linestyle='--',
                          linewidth=1.2 if extreme else 0.8, alpha=1 if extreme else 0.55, gid=f'rank-mean-{rank}')
@@ -306,11 +335,21 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
         if max_iteration < 30:
             axis.set_xticks(range(max_iteration+1))
         axis.grid(True, linestyle=':', linewidth=0.6, alpha=0.4)
-        legends.legend(*axis.get_legend_handles_labels(), loc='center', ncol=8,
+        handles, labels = axis.get_legend_handles_labels()
+        if has_work:
+            for name, marker, color in [('processed', '^', '#0369a1'), ('sent', 'v', '#047857')]:
+                throughput_axis.scatter([], [], marker=marker, color='gray', label=f'{name} / right axis')
+                value = summary['throughput']['mean_gbps'][name]
+                if value is not None:
+                    throughput_axis.axhline(value, linestyle=':', color=color, linewidth=1.5,
+                        label=f'Mean {name}: {value:.3f} GB/s', gid=f'{name}-mean-gbps')
+            throughput_axis.set_ylim(bottom=0)
+            h, lab = throughput_axis.get_legend_handles_labels(); handles += h; labels += lab
+        legends.legend(handles, labels, loc='center', ncol=8,
                        fontsize=8, frameon=False, columnspacing=1.2, handletextpad=0.3)
         page = offset//128 + 1
         window = f"last {last_n} measured/rank" if last_n else "all measured samples"
-        figure.suptitle(f"Latency / {csv_path.parent.name} / page {page}/{math.ceil(len(ranks)/128)} / experiment: all {len(ranks)} ranks / {window}\n{boundary}")
+        figure.suptitle(f"Latency{' + throughput' if has_work else ''} / {csv_path.parent.name} / page {page}/{math.ceil(len(ranks)/128)} / experiment: all {len(ranks)} ranks / {window}\n{boundary}")
         target = output_path if not offset else output_path.with_name(f'{output_path.stem}_page{page}{output_path.suffix}')
         figure.savefig(target, dpi=160)
         figure.savefig(target.with_suffix('.svg'))

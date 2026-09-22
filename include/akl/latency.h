@@ -2,6 +2,7 @@
 
 #include <acl/acl.h>
 #include <cstdint>
+#include <array>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -22,6 +23,7 @@ struct LatencySession {
     aclrtEvent start{nullptr};
     aclrtEvent end{nullptr};
     std::vector<float> milliseconds;
+    std::vector<std::array<uint64_t, 2>> work_bytes;
 
     LatencySession(uint32_t rank_id, bool synchronize) : rank(rank_id), synchronize_start(synchronize) {
         try {
@@ -51,6 +53,14 @@ inline size_t LatencyCount() {
     if (!latency_session) throw std::runtime_error("no latency session on this thread");
     return latency_session->milliseconds.size();
 }
+// 每个样本两列：处理的有效字节、跨 rank 发送的有效字节；必须在 EndLatency 前取出。
+inline void CopyWorkBytes(uint64_t* output, size_t count) {
+    if (count != LatencyCount() || latency_session->work_bytes.size() != count || (count && !output))
+        throw std::invalid_argument("incomplete work byte samples");
+    for (size_t i = 0; i < count; ++i)
+        std::copy_n(latency_session->work_bytes[i].data(), 2, output + 2 * i);
+}
+
 inline void EndLatency(float* samples, size_t count) {
     if (count != LatencyCount() || (count && !samples))
         throw std::invalid_argument("invalid latency output buffer");
