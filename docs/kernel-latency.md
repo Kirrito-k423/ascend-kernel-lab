@@ -2,12 +2,13 @@
 
 DeepEP 当前在主 kernel 入口、出口调用跨卡屏障。ACL event 包住整个 kernel，
 所以会包含两端屏障等待。新的 `kernel` 模式保留屏障，在入口屏障返回后读起点，
-业务流水排空后、出口屏障开始前读终点；数据写回和 Host 拷回都在该区间外。
+业务流水排空后、DebugClock flush 前读终点；trace 导出、latency 写回和 Host 拷回都在区间外。
 
 每个 rank 的 latency = `max_AIV(end_tick - start_tick) / SYS_CNT频率`。
 先在每个 AIV 内做整数减法，不相减跨卡或不同 AIV 的原始时间戳。
 它是屏障内最慢 AIV 的区间耗时，不是整个分布式调用的墙钟耗时，也不保证屏障释放绝对同时。
-业务内部等待、初始化及开启 DebugClock 后的设备端打点/flush 开销仍计入。
+业务内部等待、初始化及开启 DebugClock 后的逐次打点开销仍计入。
+trace 的 UB 重置、flush 及其后同步不计入；`event` 对照模式仍包含这些工作。
 
 ## 使用
 
