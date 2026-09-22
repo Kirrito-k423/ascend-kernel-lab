@@ -273,6 +273,23 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
     summary = dict(experiment_us=experiment, definition='unweighted mean of rank means over selected non-warmup samples', last_n=last_n,
                    rank_means_us=rank_means, measured_counts=counts,
                    fastest=dict(ranks=fast, mean_us=fastest), slowest=dict(ranks=slow, mean_us=slowest))
+    by_launch = defaultdict(list)
+    selected_pairs = {(rank, r['iteration']) for rank, chosen in selected.items() for r in chosen}
+    for row in rows:
+        by_launch[row['iteration']].append(row)
+    launch_stats = {}
+    for iteration, samples in sorted(by_launch.items()):
+        low, high = min(r['elapsed_us'] for r in samples), max(r['elapsed_us'] for r in samples)
+        launch_stats[iteration] = dict(min_us=low, max_us=high, mean_us=mean(r['elapsed_us'] for r in samples),
+            min_ranks=sorted(r['rank'] for r in samples if r['elapsed_us']==low),
+            max_ranks=sorted(r['rank'] for r in samples if r['elapsed_us']==high), ranks_present=len(samples),
+            warmup=any(r['is_warmup'] for r in samples),
+            selected=len(samples)==len(rows_by_rank) and all((r['rank'],iteration) in selected_pairs for r in samples))
+    # 先逐轮取所有 rank 的最大值，再跨轮平均；只纳入各 rank 均选中的完整轮次。
+    maxima = [v['max_us'] for v in launch_stats.values() if v['selected']]
+    summary['launches'] = launch_stats
+    summary['mean_launch_max_us'] = mean(maxima) if maxima else None
+    summary['complete_selected_launches'] = len(maxima)
     rates = {}
     if has_work:
         # 变长工作量取总字节/总时间，不能平均每轮 GB/s；实验值仍按 rank 等权。
@@ -286,76 +303,111 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.with_name(output_path.stem + '_summary.json').write_text(json.dumps(summary, indent=2), encoding='utf-8')
     ranks = sorted(rows_by_rank)
-    max_iteration = max(r['iteration'] for r in rows)
     max_us = max(r['elapsed_us'] for r in rows)
-    for offset in range(0, len(ranks), 128):
+    pages = [(offset, start) for offset in range(0, len(ranks), 128) for start in range(0, len(launch_stats), 20)]
+    for page, (offset, launch_start) in enumerate(pages, 1):
         page_ranks = ranks[offset:offset+128]
+        iterations = list(launch_stats)[launch_start:launch_start+20]
+        positions = {iteration: index for index, iteration in enumerate(iterations)}
         # 独立图例区域每行8项、每页最多128个rank，避免图例遮挡或无限拉长图片。
-        legend_height = 0.24 * math.ceil((len(page_ranks)+(6 if has_work else 2)) / 8) + 0.2
-        figure = plt.figure(figsize=(13, 6.8 + legend_height), layout='constrained')
-        grid = figure.add_gridspec(3, 1, height_ratios=[0.6, 5.5, legend_height])
-        metrics, axis, legends = [figure.add_subplot(grid[i]) for i in range(3)]
-        throughput_axis = axis.twinx() if has_work else None
-        if has_work:
-            throughput_axis.set_ylabel('Payload throughput (GB/s)')
+        legend_height = 0.24 * math.ceil((len(page_ranks)+3) / 8) + 0.2
+        figure = plt.figure(figsize=(13, 8.0 + legend_height), layout='constrained')
+        grid = figure.add_gridspec(4, 1, height_ratios=[0.6, 5.5, 1.1, legend_height])
+        metrics, axis, table_axis, legends = [figure.add_subplot(grid[i]) for i in range(4)]
+        table_axis.axis('off')
         metrics.axis('off')
         legends.axis('off')
-        warmup_iterations = sorted({r['iteration'] for rank in page_ranks for r in rows_by_rank[rank] if r['is_warmup']})
+        warmup_iterations = [positions[i] for i in iterations if launch_stats[i]['warmup']]
         # 按实际标记合并相邻轮次；每轮占 iteration ± 0.5，不覆盖正式测量。
         for index, (_, group) in enumerate(groupby(enumerate(warmup_iterations), lambda pair: pair[1]-pair[0])):
-            iterations = [iteration for _, iteration in group]
-            axis.axvspan(iterations[0]-0.5, iterations[-1]+0.5, color='#9ca3af', alpha=0.3, linewidth=0,
+            warmup_group = [iteration for _, iteration in group]
+            axis.axvspan(warmup_group[0]-0.5, warmup_group[-1]+0.5, color='#9ca3af', alpha=0.3, linewidth=0,
                          zorder=0, label='Warmup (gray / x)' if index == 0 else None, gid=f'warmup-{index}')
         def rank_label(ids):
             return f"rank {ids[0]}" + (f" (+{len(ids)-1} tied)" if len(ids)>1 else '')
-        for x, label, value, color in [(0.16, 'Fastest mean / '+rank_label(fast), fastest, '#b91c1c'),
-                                      (0.5, 'Experiment / mean of rank means', experiment, '#7c3aed'),
-                                      (0.84, 'Slowest mean / '+rank_label(slow), slowest, '#b91c1c')]:
-            metrics.text(x, 0.5, f"{label}\n{value:.6f} us", ha='center', va='center', color=color, fontsize=10)
+        for x, label, value, color in [(0.12, 'Fastest rank mean / '+rank_label(fast), fastest, '#b91c1c'),
+                                      (0.37, 'Mean of rank means', experiment, '#7c3aed'),
+                                      (0.62, 'Slowest rank mean / '+rank_label(slow), slowest, '#b91c1c'),
+                                      (0.87, f'Mean of launch maxima / {len(maxima)} launches', summary['mean_launch_max_us'], '#0369a1')]:
+            number = f'{value:.3f} us' if value is not None else 'N/A'
+            metrics.text(x, 0.5, f"{label}\n{number}", ha='center', va='center', color=color, fontsize=9)
         for i, rank in enumerate(page_ranks, offset):
-            samples = sorted(rows_by_rank[rank], key=lambda r: r['iteration'])
+            samples = sorted((r for r in rows_by_rank[rank] if r['iteration'] in positions), key=lambda r: r['iteration'])
             color = matplotlib.colors.hsv_to_rgb(((i * 0.61803398875) % 1, 0.7, 0.75))
-            axis.scatter([r['iteration'] for r in samples], [r['elapsed_us'] for r in samples],
+            axis.scatter([positions[r['iteration']] for r in samples], [r['elapsed_us'] for r in samples],
                          s=18, alpha=0.7, color=color, label=f'Rank {rank}', zorder=3)
-            if has_work:
-                timed = [r for r in samples if r['elapsed_us'] > 0]
-                for name, marker in [('processed', '^'), ('sent', 'v')]:
-                    throughput_axis.scatter([r['iteration'] for r in timed],
-                        [r[name+'_bytes'] / (r['elapsed_us'] * 1000) for r in timed],
-                        marker=marker, s=14, alpha=0.5, color=color)
             extreme = rank_means[rank] in (fastest, slowest)
             axis.axhline(rank_means[rank], color='#b91c1c' if extreme else 'red', linestyle='--',
                          linewidth=1.2 if extreme else 0.8, alpha=1 if extreme else 0.55, gid=f'rank-mean-{rank}')
             warmup = [r for r in samples if r['is_warmup']]
-            axis.scatter([r['iteration'] for r in warmup], [r['elapsed_us'] for r in warmup],
+            axis.scatter([positions[r['iteration']] for r in warmup], [r['elapsed_us'] for r in warmup],
                          marker='x', s=35, color=color, zorder=4)
         axis.axhline(experiment, color='#7c3aed', linewidth=2, label='Experiment mean', zorder=5)
-        axis.set(xlabel='Iteration', ylabel='Latency (us)', xlim=(-0.5, max_iteration+0.5),
+        if maxima:
+            axis.axhline(summary['mean_launch_max_us'], color='#0369a1', linewidth=2, linestyle='-.',
+                label='Mean of launch maxima', gid='mean-launch-max')
+        axis.set(xlabel='Launch / iteration', ylabel='Latency (us)', xlim=(-0.5, len(iterations)-0.5),
                  ylim=(0, max(1, max_us*1.08)))
-        if max_iteration < 30:
-            axis.set_xticks(range(max_iteration+1))
+        axis.set_xticks(range(len(iterations)), iterations)
+        def cell(iteration, name):
+            value = launch_stats[iteration]
+            ids = value.get(name+'_ranks', [])
+            rank = f'\nr{ids[0]}' + ('+' if len(ids)>1 else '') if ids else ''
+            return f'{value[name+"_us"]:.2f}'+rank
+        table = table_axis.table(cellText=[[cell(i, name) for i in iterations] for name in ('min','max','mean')],
+            rowLabels=['Min us / rank','Max us / rank','Mean us'],
+            colLabels=[str(i)+(' *' if launch_stats[i]['ranks_present']<len(ranks) else '') for i in iterations],
+            cellLoc='center', bbox=[0,0,1,1])
+        table.auto_set_font_size(False); table.set_fontsize(7)
+        for column, iteration in enumerate(iterations):
+            for row in range(4):
+                table[row,column].set_facecolor('#e5e7eb' if launch_stats[iteration]['warmup'] else 'white')
+        table_axis.set_title('All-rank launch stats; gray = warmup; + = tied ranks; * = incomplete rank coverage', fontsize=8)
         axis.grid(True, linestyle=':', linewidth=0.6, alpha=0.4)
-        handles, labels = axis.get_legend_handles_labels()
-        if has_work:
-            for name, marker, color in [('processed', '^', '#0369a1'), ('sent', 'v', '#047857')]:
-                throughput_axis.scatter([], [], marker=marker, color='gray', label=f'{name} / right axis')
-                value = summary['throughput']['mean_gbps'][name]
-                if value is not None:
-                    throughput_axis.axhline(value, linestyle=':', color=color, linewidth=1.5,
-                        label=f'Mean {name}: {value:.3f} GB/s', gid=f'{name}-mean-gbps')
-            throughput_axis.set_ylim(bottom=0)
-            h, lab = throughput_axis.get_legend_handles_labels(); handles += h; labels += lab
-        legends.legend(handles, labels, loc='center', ncol=8,
+        legends.legend(*axis.get_legend_handles_labels(), loc='center', ncol=8,
                        fontsize=8, frameon=False, columnspacing=1.2, handletextpad=0.3)
-        page = offset//128 + 1
         window = f"last {last_n} measured/rank" if last_n else "all measured samples"
-        figure.suptitle(f"Latency{' + throughput' if has_work else ''} / {csv_path.parent.name} / page {page}/{math.ceil(len(ranks)/128)} / experiment: all {len(ranks)} ranks / {window}\n{boundary}")
-        target = output_path if not offset else output_path.with_name(f'{output_path.stem}_page{page}{output_path.suffix}')
+        figure.suptitle(f"Latency / {csv_path.parent.name} / page {page}/{len(pages)} / experiment: all {len(ranks)} ranks / {window}\n{boundary}")
+        target = output_path if page == 1 else output_path.with_name(f'{output_path.stem}_page{page}{output_path.suffix}')
         figure.savefig(target, dpi=160)
         figure.savefig(target.with_suffix('.svg'))
         plt.close(figure)
+    if has_work:
+        _plot_throughput(rows_by_rank, summary['throughput'], csv_path, output_path, boundary, window)
     print(f'Experiment: {experiment:.6f} us; fastest: {fastest:.6f} us; slowest: {slowest:.6f} us')
     return rank_means, sum(counts.values())
+
+
+def _plot_throughput(rows_by_rank, summary, csv_path, latency_path, boundary, window):
+    ranks = sorted(rows_by_rank)
+    for offset in range(0, len(ranks), 128):
+        page_ranks = ranks[offset:offset+128]
+        legend_height = 0.24 * math.ceil(len(page_ranks)/8) + 0.2
+        figure = plt.figure(figsize=(13, 7 + legend_height), layout='constrained')
+        grid = figure.add_gridspec(3, 1, height_ratios=[3, 3, legend_height])
+        axes = [figure.add_subplot(grid[i]) for i in range(3)]
+        for axis, name, title in zip(axes, ('processed', 'sent'), ('Processed payload', 'Sent payload')):
+            for index, rank in enumerate(page_ranks, offset):
+                samples = sorted(rows_by_rank[rank], key=lambda r:r['iteration'])
+                timed = [r for r in samples if r['elapsed_us']>0]
+                color = matplotlib.colors.hsv_to_rgb(((index*0.61803398875)%1,0.7,0.75))
+                axis.scatter([r['iteration'] for r in timed], [r[name+'_bytes']/(r['elapsed_us']*1000) for r in timed],
+                    s=18, alpha=0.7, color=color, label=f'Rank {rank}')
+            for iteration in sorted({r['iteration'] for rank in page_ranks for r in rows_by_rank[rank] if r['is_warmup']}):
+                axis.axvspan(iteration-.5,iteration+.5,color='#9ca3af',alpha=.3,linewidth=0)
+            value = summary['mean_gbps'][name]
+            if value is not None:
+                axis.axhline(value,color='#7c3aed',linewidth=2,gid=f'{name}-mean-gbps')
+            axis.set(title=f'{title} / mean: {value:.3f} GB/s' if value is not None else title+' / mean: N/A',
+                xlabel='Launch / iteration',ylabel='GB/s (10^9 bytes/s)',ylim=(0,None))
+            axis.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+            axis.grid(True,linestyle=':',alpha=.4)
+        axes[2].axis('off')
+        axes[2].legend(*axes[0].get_legend_handles_labels(),loc='center',ncol=8,fontsize=8,frameon=False)
+        figure.suptitle(f'Payload throughput / {csv_path.parent.name} / {summary["work_kind"]} / {window} / gray = warmup\n{boundary}\n{summary["definition"]}', fontsize=11)
+        suffix = '' if not offset else f'_page{offset//128+1}'
+        target = latency_path.with_name('dispatch_bandwidth'+suffix+latency_path.suffix)
+        figure.savefig(target,dpi=160);figure.savefig(target.with_suffix('.svg'));plt.close(figure)
 
 
 def main() -> None:
