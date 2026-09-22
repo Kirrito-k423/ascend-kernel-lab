@@ -372,10 +372,41 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
         figure.savefig(target, dpi=160)
         figure.savefig(target.with_suffix('.svg'))
         plt.close(figure)
+    _plot_launch_latency(launch_stats, len(ranks), csv_path, output_path, boundary)
     if has_work:
         _plot_throughput(rows_by_rank, summary['throughput'], csv_path, output_path, boundary, window)
     print(f'Experiment: {experiment:.6f} us; fastest: {fastest:.6f} us; slowest: {slowest:.6f} us')
     return rank_means, sum(counts.values())
+
+
+def _plot_launch_latency(launches, rank_count, csv_path, latency_path, boundary):
+    figure, axis = plt.subplots(figsize=(13, 5.5))
+    iterations = list(launches)
+    partial = [i for i in iterations if launches[i]['ranks_present'] < rank_count]
+    for name, title, color, marker, style in [('max', 'Slowest', '#c2410c', '^', '-'),
+            ('mean', 'Mean', '#2563eb', 'o', '--'), ('min', 'Fastest', '#0f766e', 's', ':')]:
+        axis.plot(iterations, [launches[i][name+'_us'] for i in iterations], label=title,
+                  color=color, marker=marker, linestyle=style, markersize=5, gid='launch-'+name)
+        if partial:
+            axis.scatter(partial, [launches[i][name+'_us'] for i in partial], color='black', marker='x',
+                         s=60, zorder=4, label='Incomplete rank coverage' if name=='max' else None)
+    for index, iteration in enumerate(i for i in iterations if launches[i]['warmup']):
+        axis.axvspan(iteration-.5, iteration+.5, color='#9ca3af', alpha=.3, linewidth=0,
+                     label='Warmup' if index==0 else None, gid='launch-warmup-'+str(index))
+    axis.set(xlabel='Launch / iteration', ylabel='Latency (us)', ylim=(0, None),
+             xlim=(iterations[0]-.5, iterations[-1]+.5),
+             title=f'Per-launch latency / {csv_path.parent.name} / {rank_count} ranks (available samples per launch)\n{boundary}')
+    if len(iterations) <= 30:
+        axis.set_xticks(iterations)
+    else:
+        axis.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+    axis.grid(True, linestyle=':', alpha=.4)
+    figure.legend(*axis.get_legend_handles_labels(), loc='lower center', ncol=5, frameon=False)
+    figure.tight_layout(rect=(0, .07, 1, 1))
+    target = latency_path.with_name('dispatch_latency_launches'+latency_path.suffix)
+    figure.savefig(target, dpi=160)
+    figure.savefig(target.with_suffix('.svg'))
+    plt.close(figure)
 
 
 def _plot_throughput(rows_by_rank, summary, csv_path, latency_path, boundary, window):
