@@ -7,6 +7,7 @@ namespace akl {
 template<bool Enabled, uint32_t Capacity = kCapacity>
 class Recorder {
 public:
+    __aicore__ inline uint32_t Written() const { return count_; }
     static_assert(Capacity > 0 && Capacity % 2 == 0, "容量须为正偶数以保证32B对齐");
     __aicore__ inline void Mark(uint32_t id) {
         if constexpr (Enabled) At(id, AscendC::GetSystemCycle());

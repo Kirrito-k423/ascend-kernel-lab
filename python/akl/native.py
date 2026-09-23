@@ -4,7 +4,7 @@ import os, platform, configparser
 from pathlib import Path
 
 class Runtime:
-    def __init__(self, library, device):
+    def __init__(self, library, device, symbol="akl", params_size=60):
         self.device, self.buffers = device, []
         self.acl = C.CDLL("libascendcl.so")
         v, i, u, z = C.c_void_p, C.c_int, C.c_uint32, C.c_size_t
@@ -21,10 +21,12 @@ class Runtime:
             f=getattr(self.acl,name); f.argtypes=args; f.restype=i
         self.acl.aclrtGetSocName.restype=C.c_char_p
         self.lib=C.CDLL(str(library))
-        self.lib.akl_params_size.restype=u
-        if self.lib.akl_params_size()!=60: raise RuntimeError("设备参数ABI大小不匹配")
-        self.lib.akl_launch.argtypes=[u,v,v,v,v,v,v,i]
-        self.lib.akl_launch.restype=None
+        size_fn=getattr(self.lib, symbol+"_params_size")
+        size_fn.restype=u
+        if size_fn()!=params_size: raise RuntimeError("设备参数ABI大小不匹配")
+        self.launch_fn=getattr(self.lib, symbol+"_launch")
+        self.launch_fn.argtypes=[u,v,v,v,v,v,v,i]
+        self.launch_fn.restype=None
         self.stream=v()
         self.check("aclInit", None)
         try:
@@ -67,7 +69,7 @@ class Runtime:
         self.check("aclrtMemcpy",C.c_void_p(array.ctypes.data),array.nbytes,p,array.nbytes,2)
 
     def launch(self,cores,pointers,trace):
-        self.lib.akl_launch(cores,self.stream,*pointers,int(trace))
+        self.launch_fn(cores,self.stream,*pointers,int(trace))
         self.check("aclrtSynchronizeStream",self.stream)
 
     def free_buffers(self):
