@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from matplotlib.figure import Figure
 
 from akl.breakdown import REPORTS, aggregate
 from akl.semantic import MAGIC, decode_capture, path_hash, render
@@ -59,7 +60,16 @@ class Breakdown(unittest.TestCase):
             mapping = capture(folder, dropped=2)
             meta, events, warnings = decode_capture(folder, mapping)
             events[0]['path'] = ['</script><script>bad()</script>']
-            render(folder, meta, events, warnings, clock_mhz=50, cycle_range=(0, 1))
+            save = Figure.savefig
+            def checked_save(fig, target, **kwargs):
+                if str(target).endswith('breakdown_duration.png'):
+                    widths = [bar.get_width() for bar in fig.axes[0].patches]
+                    self.assertEqual(widths, sorted(widths, reverse=True))
+                    self.assertIn('Rank 0 | Core mean', fig._suptitle.get_text())
+                    self.assertTrue(all(not t.get_text().isdigit() for t in fig.axes[0].get_yticklabels()))
+                return save(fig, target, **kwargs)
+            with patch.object(Figure, 'savefig', autospec=True, side_effect=checked_save):
+                render(folder, meta, events, warnings, clock_mhz=50, cycle_range=(0, 1))
             text = (folder/'semantic.html').read_text()
             self.assertIn('dropped=2', text)
             self.assertNotIn('<script>bad()', text)
@@ -106,7 +116,8 @@ class Breakdown(unittest.TestCase):
                 result = group/f'runs/rank{rank}-pid1-launch0'
                 self.assertEqual({p.name for p in result.iterdir()},
                                  {'semantic.html', 'semantic.svg', 'trace.json', *REPORTS})
-                self.assertIn('breakdown_duration.png', (result/'semantic.html').read_text())
+                text = (result/'semantic.html').read_text()
+                self.assertEqual(json.loads(re.search(r'id="breakdown-data">(.*?)</script>', text).group(1))['rank'], rank)
             self.assertFalse(list(root.rglob('*.zip')))
 
 
