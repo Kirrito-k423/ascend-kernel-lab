@@ -9,6 +9,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from .chrome_trace import trace_file, write_capture
+from .breakdown import REPORTS, render_breakdown
 
 MAGIC = 0x414B4C5452433031
 
@@ -203,6 +204,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None,
         lane_data.append(dict(svg=lane, rows=rows[block], counts=totals))
     # 用字符串保存未选中的 block；不预先创建数万个 SVG/表格 DOM 节点。
     payload = json.dumps(lane_data, ensure_ascii=False).replace('<', '\\u003c')
+    breakdown = render_breakdown(folder, meta, events, warnings, clock_mhz)
     page = f'''<!doctype html><html lang="zh"><meta charset="utf-8"><title>语义 cycle 时间线</title>
 <style>body{{font:14px system-ui;margin:20px;color:#183047}}svg{{display:block;width:100%}}.chart{{overflow:auto;max-height:72vh;border:1px solid #cbd5e1}}.canvas{{min-width:900px}}.ruler{{position:sticky;top:0;z-index:1;background:white;border-bottom:1px solid #cbd5e1}}output{{display:block;padding:4px 8px;font:12px ui-monospace,monospace;min-height:18px}}td,th{{padding:4px 8px;text-align:left;border-bottom:1px solid #ddd}}input{{width:60px}}.controls{{margin:12px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}}#from,#to{{width:120px}}#timeline{{user-select:none;touch-action:pan-y}}details{{margin-top:18px}}</style>
 <h1>语义 cycle 时间线 · rank {meta['rank']} / device {meta['device']}</h1>
@@ -231,7 +233,7 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None,
 {svg_open}id="timeline" data-origin="{origin}" data-extent="{extent}" data-mhz="{clock_mhz or ''}" data-left="{left}" data-right="{right}" viewBox="0 0 1180 {height}"><g id="grid">{grid}</g><g id="lanes"></g>
 <rect id="selection" y="0" height="100%" fill="#2563eb" opacity="0.15" pointer-events="none" visibility="hidden"/>
 <line id="cursor" x1="100" x2="100" y1="0" y2="100%" stroke="#0f172a" stroke-width="1" pointer-events="none" visibility="hidden"/></svg>
-</div></div><details id="counts-detail"><summary>打点次数（所选 block 的保留记录）</summary>
+</div></div>{breakdown}<details id="counts-detail"><summary>打点次数（所选 block 的保留记录）</summary>
 <table><thead><tr><th>block/subblock</th><th>次数</th><th>语义路径</th></tr></thead><tbody id="counts-body"></tbody></table></details>
 <details id="events-detail"><summary>原始绝对 cycle（所选 block，整数）</summary>
 <table><thead><tr><th>block/subblock</th><th>序号</th><th>该点第几次</th><th>cycle</th><th>语义路径</th></tr></thead><tbody id="events-body"></tbody></table></details>
@@ -259,7 +261,7 @@ def clean_capture(folder, signature, remove_reports=False):
         raise ValueError(f'{folder}: 采集已变化，保留输入，请重新解析')
     names = ['trace.bin', 'capture.json', 'semantic.jsonl', 'counts.json']
     if remove_reports:
-        names += ['semantic.html', 'semantic.svg', 'trace.json']
+        names += ['semantic.html', 'semantic.svg', 'trace.json', *REPORTS]
     for name in names:
         (folder / name).unlink(missing_ok=True)
     if remove_reports and not any(folder.iterdir()):

@@ -7,7 +7,7 @@ body{font:14px system-ui;margin:20px;color:#183047;background:#f8fafc}h1{font-si
 <p id="overview"></p>
 <p>每次采集独立保留绝对 cycle。统计区间为同一 block 内相邻打点之差，末点只计次数；不对齐不同 rank 的时钟。launch 是进程内编号，不自动等同于跨 rank 的第几轮实验。</p>
 <nav><!--ZIP--><a href="summary.json" download>汇总 JSON</a><a href="trace.json" download>本 launch 的 Chrome Trace JSON</a></nav>
-<div class="controls"><label>Rank <select id="rank"><option value="">全部</option></select></label><label>视图 <select id="mode"><option value="summary">汇总统计</option><option value="timeline">单次时间线</option></select></label></div>
+<div class="controls"><label>Rank <select id="rank"><option value="">全部</option></select></label><label>视图 <select id="mode"><option value="summary">汇总统计</option><option value="timeline">单次时间线</option><option value="breakdown">单次 core 耗时占比</option></select></label></div>
 <section id="summary"><h2>采集分布</h2><div class="table"><table><thead><tr><th>rank</th><th>成功 / 失败</th><th>有丢弃告警</th><th>保留事件</th><th>核内首末点跨度 cycle（min…max）</th></tr></thead><tbody id="ranks"></tbody></table></div>
 <h2>语义路径汇总 · 当前 rank 范围</h2><p>次数仅统计保留记录；耗时是该点到下一点的区间，mean 为按区间次数加权均值，不是整轮业务耗时。</p><div class="table"><table><thead><tr><th>路径</th><th>次数</th><th>有效区间数</th><th>min cycle</th><th>mean cycle</th><th>max cycle</th></tr></thead><tbody id="stats"></tbody></table></div></section>
 <section id="detail" hidden><div class="controls"><button id="prev">上一条</button><label>采集 <select id="capture"></select></label><button id="next">下一条</button><a id="open" target="_blank">独立打开时间线</a><a id="svg" download>SVG</a></div><p id="status"></p><iframe id="frame" title="所选采集的时间线"></iframe></section>
@@ -28,7 +28,7 @@ function choose() {
     $('frame').hidden=!r || r.status!=='ok'; $('open').hidden=$('svg').hidden=$('frame').hidden;
     if(!r) {$('frame').removeAttribute('src');return;}
     $('status').textContent=r.id+' · '+r.status+'\n'+(r.error || r.warnings.join('\n') || '无丢弃告警');
-    if(r.status==='ok') {$('frame').src=r.html;$('open').href=r.html;$('svg').href=r.html.replace(/semantic\.html$/,'semantic.svg');}
+    if(r.status==='ok') {const url=r.html+($('mode').value==='breakdown'?'#breakdown':'');$('frame').src=url;$('open').href=url;$('svg').href=r.html.replace(/semantic\.html$/,'semantic.svg');}
     else $('frame').removeAttribute('src');
 }
 function update() {
@@ -52,10 +52,10 @@ function update() {
         const mean=scaled===null?'—':String(scaled/1000n)+'.'+String(scaled%1000n).padStart(3,'0');
         row($('stats'),[s.path.join(' / '),s.count,s.intervals,s.min??'—',mean,s.max??'—']);
     }
-    if($('mode').value==='timeline') choose();
+    if($('mode').value!=='summary') choose();
 }
 $('rank').onchange=update; $('capture').onchange=choose;
-$('mode').onchange=()=>{const detail=$('mode').value==='timeline';$('summary').hidden=detail;$('detail').hidden=!detail;if(detail) choose();else $('frame').removeAttribute('src');};
+$('mode').onchange=()=>{const detail=$('mode').value!=='summary';$('summary').hidden=detail;$('detail').hidden=!detail;if(detail) choose();else $('frame').removeAttribute('src');};
 for(const [id,delta] of [['prev',-1],['next',1]]) $(id).onclick=()=>{$('capture').selectedIndex+=delta;choose();};
 update();
 </script></html>
