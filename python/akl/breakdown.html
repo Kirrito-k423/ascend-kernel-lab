@@ -40,7 +40,8 @@
             };
             img.onerror=()=>{$('breakdown-status').textContent='PNG 导出失败，请重试或下载上方的 rank 平均 PNG。';};
             img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(data.panels[index].svg[i]);
-    };});
+        };
+    });
     select.addEventListener('change',draw); draw();
 })();
 </script></section>
