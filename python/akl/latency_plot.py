@@ -304,6 +304,11 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
     output_path.with_name(output_path.stem + '_summary.json').write_text(json.dumps(summary, indent=2), encoding='utf-8')
     ranks = sorted(rows_by_rank)
     max_us = max(r['elapsed_us'] for r in rows)
+    heat = matplotlib.colors.LinearSegmentedColormap.from_list('latency', ['#bfe5ca', '#fff5cc', '#f1b7b4'])
+    table_ranges = {}
+    for name in ('min', 'max', 'mean'):
+        values = [v[name+'_us'] for v in launch_stats.values() if not v['warmup']]
+        table_ranges[name] = min(values), max(values)
     pages = [(offset, start) for offset in range(0, len(ranks), 128) for start in range(0, len(launch_stats), 20)]
     for page, (offset, launch_start) in enumerate(pages, 1):
         page_ranks = ranks[offset:offset+128]
@@ -360,9 +365,13 @@ def plot_latency(rows: List[dict], csv_path: Path, output_path: Path, last_n: in
             cellLoc='center', bbox=[0,0,1,1])
         table.auto_set_font_size(False); table.set_fontsize(7)
         for column, iteration in enumerate(iterations):
-            for row in range(4):
-                table[row,column].set_facecolor('#e5e7eb' if launch_stats[iteration]['warmup'] else 'white')
-        table_axis.set_title('All-rank launch stats; gray = warmup; + = tied ranks; * = incomplete rank coverage', fontsize=8)
+            value = launch_stats[iteration]
+            table[0,column].set_facecolor('#e5e7eb' if value['warmup'] else 'white')
+            for row, name in enumerate(('min', 'max', 'mean'), 1):
+                low, high = table_ranges[name]
+                fraction = (value[name+'_us']-low)/(high-low) if high>low else .5
+                table[row,column].set_facecolor('#e5e7eb' if value['warmup'] else heat(fraction))
+        table_axis.set_title('Each row: green = low, red = high; gray = warmup; + = tied ranks; * = incomplete coverage', fontsize=8)
         axis.grid(True, linestyle=':', linewidth=0.6, alpha=0.4)
         legends.legend(*axis.get_legend_handles_labels(), loc='center', ncol=8,
                        fontsize=8, frameon=False, columnspacing=1.2, handletextpad=0.3)
@@ -398,21 +407,28 @@ def _plot_launch_latency(launches, rank_count, csv_path, latency_path, boundary)
              title=f'Per-launch latency / {csv_path.parent.name} / {rank_count} ranks (available samples per launch)\n{boundary}')
     valid = [i for i in iterations if launches[i]['selected']]
     if valid:
-        axis.set_ylim(top=max(1, max(v['max_us'] for v in launches.values()) * 1.28))
+        low, high = min(launches[i]['min_us'] for i in valid), max(launches[i]['max_us'] for i in valid)
+        padding = (high-low)*.25 if high>low else max(abs(low)*.02, .001)
+        axis.set_ylim(max(0, low-padding), high+padding)
+        axis.set_title(axis.get_title()+'\nY range: selected launches; out-of-range warmup/unselected points are clipped', fontsize=10)
         # 与跨轮均值使用同一有效集合；并列极值标最早一轮，原始 rank 列表保留在 JSON。
-        for name, choose, label, color, offset in [('max', max, 'Slowest', '#c2410c', .18),
-                ('min', min, 'Fastest', '#0f766e', -.18)]:
+        for name, choose, label, color, offset in [('max', max, 'Slowest max', '#c2410c', .15),
+                ('max', min, 'Slowest min', '#c2410c', -.06),
+                ('min', max, 'Fastest max', '#0f766e', .15),
+                ('min', min, 'Fastest min', '#0f766e', -.06)]:
             iteration = choose(valid, key=lambda i: launches[i][name+'_us'])
             value, ids = launches[iteration][name+'_us'], launches[iteration][name+'_ranks']
-            axis.scatter([iteration], [value], s=220, marker='*', color=color, edgecolors='black',
-                         linewidths=.8, zorder=6, gid='selected-'+name)
-            note = f'{label} valid: {value:.3f} us\nLaunch {iteration} / rank {ids[0]}' + (' (+ties)' if len(ids)>1 else '')
+            key = name+'-'+choose.__name__
+            axis.scatter([iteration], [value], s=180, marker='*' if choose is max else 'D', color=color, edgecolors='black',
+                         linewidths=.8, zorder=6, gid='selected-'+key)
+            note = f'{label}: {value:.3f} us\nLaunch {iteration} / rank {ids[0]}' + (' (+ties)' if len(ids)>1 else '')
             x = (iteration-iterations[0]+.5) / (iterations[-1]-iterations[0]+1)
-            y = min(.97, max(.14, value/axis.get_ylim()[1]+offset))
+            bottom, top = axis.get_ylim()
+            y = min(.98, max(.14, (value-bottom)/(top-bottom)+offset))
             axis.annotate(note, xy=(iteration, value), xytext=(x,y), textcoords='axes fraction',
                           ha='left' if x<.5 else 'right', va='top', color=color, fontsize=10, zorder=7,
                           bbox=dict(boxstyle='round,pad=.4', fc='white', ec=color),
-                          arrowprops=dict(arrowstyle='->', color=color), gid='selected-'+name+'-label')
+                          arrowprops=dict(arrowstyle='->', color=color), gid='selected-'+key+'-label')
     if len(iterations) <= 30:
         axis.set_xticks(iterations)
     else:
