@@ -19,6 +19,7 @@
 2. 在目标环境填写 [实验记录](templates/experiment.md)，确认芯片、CANN、工具链与拓扑。
 3. 调用 `$ascend-kernel-trace` 调试真实算子，或 `$ascend-micro-benchmark` 验证接口。两个 skill 均要求区分已设计、已实现和已验证。
 4. 按 [运行说明](docs/quickstart.md) 复现已验证实验，再依据 [实施顺序](docs/roadmap.md) 扩展。
+5. 验证 950 的 SIMT 源码热点采集：按 [独立探针与回传说明](docs/simt-source-probe.md)运行并返回结果包。
 
 ## Skill 安装
 
