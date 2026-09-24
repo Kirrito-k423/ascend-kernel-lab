@@ -1,0 +1,47 @@
+<section id="breakdown"><style>#breakdown svg{height:auto;max-width:1200px}</style>
+<h2 id="breakdown-title">当前 rank 的同类型耗时与 E2E 占比</h2>
+<p>完整语义路径相同的区间累加（该点至同核下一点）。E2E 为该 core 保留记录的首末点跨度，不代表完整 kernel 延迟。末点不计耗时，父子路径不重复累加。</p>
+<p>默认显示当前 rank 的 core 平均：有至少两个打点的 core 等权平均，缺少的类型计 0；占比为平均类型耗时 ÷ 平均 E2E。少于两点的 core 显示 N/A 并排除。<!--WARNINGS--></p>
+<p>统计全量保留区间，不随时间线缩放或换算变化；单位由解析时的 --clock-mhz 决定（未指定则为 cycle）。图中省略零耗时类型，完整数据见表。</p>
+<div class="controls"><label>当前 rank 内的 Core / 平均 <select id="breakdown-core"></select></label>
+<a id="breakdown-mean-bar" href="breakdown_duration.png" download>该 rank 平均柱状图 PNG</a><a id="breakdown-mean-pie" href="breakdown_share.png" download>该 rank 平均饼图 PNG</a>
+<button id="breakdown-save-bar">导出当前柱状图 PNG</button><button id="breakdown-save-pie">导出当前饼图 PNG</button></div>
+<p id="breakdown-status"></p>
+<div id="breakdown-bar" role="img" aria-label="所选 core 同类型总耗时柱状图"></div>
+<div id="breakdown-pie" role="img" aria-label="所选 core 各类型占 E2E 比例饼图"></div>
+<div style="max-height:42vh;overflow:auto"><table><thead><tr><th>类型</th><th>总耗时</th><th>E2E 占比</th></tr></thead><tbody id="breakdown-values"></tbody></table></div>
+<script type="application/json" id="breakdown-data"><!--DATA--></script>
+<script>
+(() => {
+    const data=JSON.parse(document.getElementById('breakdown-data').textContent), $=id=>document.getElementById(id);
+    const select=$('breakdown-core'), body=$('breakdown-values');
+    $('breakdown-title').textContent=`Rank ${data.rank} · 同类型耗时与 E2E 占比`;
+    data.panels.forEach(p=>select.add(new Option(p.label)));
+    function draw() {
+        const p=data.panels[select.selectedIndex], totals=p.totals.map(Number), sum=totals.reduce((a,b)=>a+b,0);
+        $('breakdown-status').textContent=`Rank ${data.rank} · ${p.label} · observed E2E: `+(p.valid?(sum*data.factor/p.divisor).toLocaleString()+' '+data.unit:'N/A');
+        ['bar','pie'].forEach((name,i)=>{$('breakdown-'+name).innerHTML=p.svg[i];});
+        body.replaceChildren();
+        totals.map((v,i)=>({v,i})).sort((a,b)=>b.v-a.v).forEach(({v,i})=>{
+            const row=body.insertRow(); row.insertCell().textContent=data.paths[i];
+            row.insertCell().textContent=p.valid?(v*data.factor/p.divisor).toLocaleString(undefined,{maximumFractionDigits:3})+' '+data.unit:'N/A';
+            row.insertCell().textContent=p.valid && sum?(100*v/sum).toFixed(2)+'%':'N/A';
+        });
+    }
+    ['bar','pie'].forEach((name,i)=>{
+        $('breakdown-mean-'+name).download=`rank${data.rank}-mean-${name}.png`;
+        $('breakdown-save-'+name).onclick=()=>{
+            const index=select.selectedIndex, img=new Image();
+            img.onload=()=>{
+                const canvas=document.createElement('canvas'); canvas.width=img.width*2; canvas.height=img.height*2;
+                canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+                const a=document.createElement('a'); a.download=`rank${data.rank}-${index?data.panels[index].label.replace(/[^a-zA-Z0-9_-]+/g,'-'):'mean'}-${name}.png`;
+                a.href=canvas.toDataURL('image/png'); a.click();
+            };
+            img.onerror=()=>{$('breakdown-status').textContent='PNG 导出失败，请重试或下载上方的 rank 平均 PNG。';};
+            img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(data.panels[index].svg[i]);
+        };
+    });
+    select.addEventListener('change',draw); draw();
+})();
+</script></section>
