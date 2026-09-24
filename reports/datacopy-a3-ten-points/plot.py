@@ -25,7 +25,7 @@ plt.rcParams.update({'font.family':font,'axes.unicode_minus':False,'font.size':1
 labels=['32 B','64 B','128 B','256 B','512 B','1 KiB','4 KiB','8 KiB','14 KiB','32 KiB']
 for metric,title,ylabel,filename in [
     ('p50_us','A3 DataCopy：每条曲线 10 个实测点','每次完成耗时（μs，p50）','latency-10.png'),
-    ('payload_GBps','A3 DataCopy：10 个 shape 的有效吞吐','有效 payload 吞吐（GB/s）','throughput-10.png')]:
+    ('payload_GBps','A3 DataCopy：逐次等待扫描，尚未测到吞吐平台','有效 payload 吞吐（GB/s）','throughput-10.png')]:
     fig,ax=plt.subplots(figsize=(11.8,5.8))
     fig.patch.set_facecolor('#f7f9fc');ax.set_facecolor('white')
     fig.suptitle(title,x=.085,y=.97,ha='left',fontsize=21,fontweight='bold',color='#15334d')
@@ -44,7 +44,7 @@ for metric,title,ylabel,filename in [
     ax.grid(axis='both',alpha=.16);ax.legend(loc='upper left',frameon=False)
     foot='每点 20 次计时样本；线为 p50，阴影为 p50–p95。' if metric=='p50_us' else '每点吞吐 = 有效字节 ÷ p50 完成耗时；单向计量。'
     fig.text(.085,.065,foot+'连线仅引导阅读，无拟合或外推。',color='#486172',fontsize=10)
-    fig.text(.085,.025,'每次拷贝后等待完成（batch=1），每次计时128次调用；重复小工作集。含循环/同步开销，不代表HBM物理峰值。',color='#486172',fontsize=10)
+    fig.text(.085,.025,'batch=1 · 每次计时128次调用 · 重复小工作集。32 KiB 处仍在上升；需扩大数据量与批量后再判断平台。',color='#486172',fontsize=10)
     fig.subplots_adjust(left=.085,right=.96,bottom=.23,top=.83)
     fig.savefig(root/filename,dpi=160,facecolor=fig.get_facecolor());plt.close(fig)
 print('Recomputed p50/p95 and throughput for all 20 points; wrote two PNGs.')

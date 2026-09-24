@@ -85,4 +85,4 @@ PYTHONPATH=python python3 -m akl.datacopy_report results/a5-real-shapes
 
 结果中看`report.html`、`latency.png`和`throughput.png`；`manifest.json`保存实际CANN/编译器等信息，`summary.csv`和`catalog.json`归档基线。10-shape完整运行共20×43=860次launch；每个点使用20次计时样本。
 
-这里测的是每次完成延迟以及由它计算的有效吞吐。若要测批量完成吞吐，再用batch=4、slots=4的独立配置，并按实际UB容量减少单次长度；不得把不同batch/工作集混成一条曲线。真实shape hook本身不测DMA独立完成时间，暂不能把复合TokenCopyToBuffer阶段直接标成纯DataCopy的预期时间。
+这里测的是每次完成延迟以及由它计算的有效吞吐，10点曲线不能确定上限。继续执行[吞吐扫描](throughput-scan.md)，按本机实际UB容量扩大单次长度，扫描batch=1～64，并做两轮平台检查。真实shape hook本身不测DMA独立完成时间，暂不能把复合TokenCopyToBuffer阶段直接标成纯DataCopy的预期时间。
