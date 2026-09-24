@@ -47,7 +47,7 @@ class CopyContracts(unittest.TestCase):
         base=CopyCase('ok')
         for change in (dict(name='../bad'),dict(block_bytes=28),dict(api='DataCopy_count',blocks=2),
                        dict(ub_offset_bytes=4),dict(slots=3,batch=2),dict(slots=4096),
-                       dict(block_bytes=32768,batch=4,slots=4),dict(dtype='bf16'),dict(loops=True),
+                       dict(block_bytes=65536*32),dict(dtype='bf16'),dict(loops=True),
                        dict(api='DataCopyPad_params',gm_gap_bytes=65536)):
             with self.subTest(change=change),self.assertRaises(ValueError): replace(base,**change).params()
 
