@@ -80,9 +80,12 @@ def execute(args):
         hardware = rt.info()
         manifest['hardware'] = hardware
         if hardware['soc'] != profile['soc']: raise ValueError('profile 与运行芯片不符')
+        # 完整矩阵先检查容量；不能测到半途才发现大 shape 超出 UB。
         for case in cases:
             p = case.params()
             if p['ub_stride_bytes'] * case.batch + WORDS*8 > hardware['ub_bytes']: raise ValueError('实际 UB 不足')
+        for case in cases:
+            p = case.params()
             folder = out/case.name
             folder.mkdir()
             record = dict(case=asdict(case), params=p, layout=case.layout(), status='incomplete')
