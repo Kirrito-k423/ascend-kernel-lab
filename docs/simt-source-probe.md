@@ -2,7 +2,8 @@
 
 本例用于回答：当前 CANN/msopprof 能否把一个 SIMT 函数关联到源码、汇编与停顿采样？
 它是独立、可重复执行的合成探针，不访问 SQ/CQ、门铃或远端内存，不测真实 DeepEP 性能。
-目前只有 CPU 模型和 Host 收集流程检查；CANN 编译、950 运行及采样映射等待你的结果。
+2026-09-24 回传已确认 Ascend950DT_9582 上编译及 32 项输出校验通过（steps=4096）。
+采样前曾因帮助中的 `PCSampling` 大小写被脚本误拦截；现已修复，实际采样与映射仍待验证。
 
 ## 1. 准备与运行
 
@@ -22,6 +23,7 @@ python3 scripts/run_simt_probe.py --device "$SIMT_DEVICE" --steps 4096 \
 先运行正确性基线，再调用已安装的 `msopprof`（或 `msprof op`）采集 `PcSampling`。
 每条命令默认最多 180 秒，可用 `--timeout` 调整；失败/超时均保留日志，不自动重试。
 只想先验证编译和正确性时，去掉 `--profile`。每次必须使用新的 `--output`。
+首轮失败后更新本分支，改用 `--output results/simt-950-retry1`，保留原始回传包。
 采样可能内部重复启动 kernel；`--launch-count=1 --warm-up=0` 不代表只执行一次。
 本例写入确定结果且输入只读，可以重复执行；不要把该命令直接换成真实通信算子。
 

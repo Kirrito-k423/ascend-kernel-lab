@@ -30,8 +30,10 @@ class ProbeRunnerTests(unittest.TestCase):
             self.assertEqual(json.loads((output / "manifest.json").read_text()), manifest)
 
     def test_capture_and_failure_bundles(self):
-        for scenario in ("capture", "missing-report", "bad-baseline"):
-            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as folder:
+        for scenario, metric in (("capture", "PcSampling"), ("capture", "PCSampling"),
+                                 ("missing-report", "PcSampling"), ("bad-baseline", "PcSampling"),
+                                 ("unsupported", "PCSamplingExtra")):
+            with self.subTest(scenario=scenario, metric=metric), tempfile.TemporaryDirectory() as folder:
                 output = Path(folder) / "capture"
                 calls = []
 
@@ -43,10 +45,12 @@ class ProbeRunnerTests(unittest.TestCase):
                         (out / "build/akl_simt_probe").write_bytes(b"mock, not ELF")
                     if name == "baseline" and scenario == "bad-baseline":
                         raise RuntimeError("oracle failed")
+                    if name == "profile":
+                        self.assertIn("--aic-metrics=" + metric, cmd)
                     if name == "profile" and scenario == "capture":
                         (out / "profile").mkdir()
                         (out / "profile/visualize_data.bin").write_bytes(b"mock, not samples")
-                    return "PcSampling"
+                    return "TYPE: Source | " + metric + " | PipeTimeline"
 
                 argv = ["probe", "--device", "0", "--profile", "--output", str(output)]
                 with patch.object(sys, "argv", argv), patch.object(probe, "execute", fake), \
@@ -56,7 +60,7 @@ class ProbeRunnerTests(unittest.TestCase):
                 result = json.loads((output / "manifest.json").read_text())
                 expected = "captured_pending_review" if scenario == "capture" else "failed"
                 self.assertEqual(result["status"], expected)
-                self.assertEqual(calls.count("profile"), int(scenario != "bad-baseline"))
+                self.assertEqual(calls.count("profile"), int(scenario not in ("bad-baseline", "unsupported")))
                 with tarfile.open(str(output) + ".tar.gz") as bundle:
                     self.assertIn("simt_probe/manifest.json", bundle.getnames())
 
