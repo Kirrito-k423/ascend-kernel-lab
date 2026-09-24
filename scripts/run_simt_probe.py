@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -99,9 +100,11 @@ def main():
             command = [profiler] + (["op"] if Path(profiler).name == "msprof" else [])
             run(command + ["--version"], "profiler-version", False)
             help_text = run(command + ["--help"], "profiler-help")
-            if "PcSampling" not in help_text:
+            # 工具帮助使用 PCSampling，文档也使用 PcSampling；保留实际声明的拼写。
+            metric = re.search(r"\bpcsampling\b", help_text, re.IGNORECASE)
+            if not metric:
                 raise RuntimeError("当前 profiler help 未声明 PcSampling；保留证据，不猜参数")
-            run(command + ["--aic-metrics=PcSampling", "--kernel-name=akl_simt_probe_kernel",
+            run(command + ["--aic-metrics=" + metric.group(), "--kernel-name=akl_simt_probe_kernel",
                            "--launch-count=1", "--warm-up=0", "--output=" + str(output / "profile")]
                 + app, "profile")
             reports = list((output / "profile").rglob("visualize_data.bin"))
