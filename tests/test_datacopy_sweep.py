@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import zipfile
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'python'))
 import numpy as np
@@ -13,6 +14,56 @@ from akl.datacopy_sweep import plan, plateau, report
 
 
 class SweepContracts(unittest.TestCase):
+    def test_bundle_preserves_failure_and_never_drops_ticks_for_size(self):
+        from akl.datacopy_bundle import bundle
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); run = root / 'failed-fixture'; run.mkdir()
+            (run / 'manifest.json').write_text(json.dumps(dict(schema='akl.datacopy.v1', status='failed', cases=[])))
+            (run / 'error.txt').write_text('CPU fixture error')
+            output = root / 'result.zip'
+            size = bundle([run], output)
+            self.assertLess(size, 5_000_000)
+            with zipfile.ZipFile(output) as archive:
+                self.assertEqual(archive.read('failed-fixture/error.txt'), b'CPU fixture error')
+                self.assertEqual(json.loads(archive.read('bundle.json'))['runs'][0]['status'], 'failed')
+            with self.assertRaises(FileExistsError): bundle([run], output)
+            with self.assertRaisesRegex(ValueError, '超过回传上限'): bundle([run], root / 'too-small.zip', limit=10)
+            self.assertFalse((root / 'too-small.zip').exists())
+            self.assertTrue((run / 'manifest.json').exists())
+
+    def test_two_windows_oracle_matches_sequential_simulation(self):
+        for direction in ('GM_UB', 'UB_GM'):
+            for loops, slots, batch in ((2, 2, 1), (5, 3, 1), (7, 6, 2), (8, 6, 2)):
+                c = CopyCase('windows', direction=direction, api='DataCopyPad_params', block_bytes=28,
+                             blocks=2, gm_gap_bytes=4, ub_offset_bytes=32, gm_offset_bytes=4,
+                             loops=loops, slots=slots, batch=batch, windows=2)
+                x, output, expected, defined = make_buffers(c)
+                p = c.params()
+                ub = np.zeros(c.layout()['ub_working_set_bytes'], dtype=np.uint8) if direction == 'GM_UB' else x.copy()
+                gm = x if direction == 'GM_UB' else output
+                for group in range(loops):
+                    for j in range(batch):
+                        for b in range(c.blocks):
+                            ui = ((group % 2) * batch + j) * p['ub_stride_bytes'] + 32 + b * 32
+                            gi = ((group * batch + j) % slots) * p['gm_stride_bytes'] + 4 + b * 32
+                            if direction == 'GM_UB': ub[ui:ui+28] = gm[gi:gi+28]
+                            else: gm[gi:gi+28] = ub[ui:ui+28]
+                if direction == 'GM_UB': output[:len(ub)] = ub
+                np.testing.assert_array_equal(output[defined], expected[defined])
+        self.assertNotIn('windows', CopyCase('old').signature())
+        self.assertEqual(c.signature()['windows'], 2)
+        self.assertEqual(c.params()['reserved1'], 1)
+        with self.assertRaises(ValueError): CopyCase('bad', windows=2).params()
+
+    def test_window_scan_capacity_and_long_duration(self):
+        spec = plan(196608, windows=2, min_loops=8192)
+        self.assertEqual(max(c['block_bytes'] for c in spec['cases']), 98144)
+        for raw in spec['cases']:
+            c = CopyCase(**raw)
+            self.assertEqual(c.windows, 2)
+            self.assertGreaterEqual(c.loops, 8192)
+            self.assertLessEqual(c.layout()['ub_working_set_bytes'] + 320, 196608)
+
     def test_large_copy_field_units_and_oracle(self):
         for api in ('DataCopy_params', 'DataCopy_count'):
             for direction in ('GM_UB', 'UB_GM'):
