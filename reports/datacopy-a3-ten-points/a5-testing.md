@@ -86,3 +86,26 @@ PYTHONPATH=python python3 -m akl.datacopy_report results/a5-real-shapes
 结果中看`report.html`、`latency.png`和`throughput.png`；`manifest.json`保存实际CANN/编译器等信息，`summary.csv`和`catalog.json`归档基线。10-shape完整运行共20×43=860次launch；每个点使用20次计时样本。
 
 这里测的是每次完成延迟以及由它计算的有效吞吐，10点曲线不能确定上限。继续执行[吞吐扫描](throughput-scan.md)，按本机实际UB容量扩大单次长度，扫描batch=1～64，并做两轮平台检查。真实shape hook本身不测DMA独立完成时间，暂不能把复合TokenCopyToBuffer阶段直接标成纯DataCopy的预期时间。
+
+## 4. 内网手动执行，回传小于5MB的ZIP
+
+当前可远程使用的机器只有A3/A2，A5由用户在其他内网手动运行。更新AKL #33后，`windows=1`为每批完成，`windows=2`为双UB窗口；建议吞吐扫描使用`--min-loops 8192`，两种同步方式分别归档。A3的双窗口结果只是[方法和输出示例](../datacopy-a3-capacity/README.md)，不能外推A5数值。
+
+测量完成后打包两个工作集、各两轮的目录：
+
+```bash
+PYTHONPATH=python python3 -m akl.datacopy_bundle \
+  results/sweep-small-1 results/sweep-small-2 \
+  results/sweep-ring-1 results/sweep-ring-2 --output results/a5-datacopy.zip
+```
+
+保留完整manifest、samples、原始trace、源码快照及运行前后占用证据；省略可重画的图片/HTML及重复events。失败状态与error.txt也保留，大的失败输出数组留在原目录并列入bundle.json，不假装是成功结果。不要另塞二进制、完整业务输入或其他日志。
+
+工具强制ZIP严格小于5000000字节；超限时删除新ZIP并提示按单个run分包，原始样本不会删减。本轮A3相同四组双窗口run打包后为3657104字节，10576个证据文件已逐文件校验CRC和SHA256。A5的实际大小由工具现场核对，不保证与A3相等。
+
+接收端可离线解包、重新核对原始tick并绘图，无需A5设备：
+
+```bash
+python3 -m zipfile -e results/a5-datacopy.zip results/from-a5
+PYTHONPATH=python python3 -m akl.datacopy_report results/from-a5/sweep-small-1
+```

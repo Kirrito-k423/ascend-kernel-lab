@@ -1,0 +1,144 @@
+{
+  "soc": "Ascend910_9382",
+  "cann": "9.1.0-beta.1",
+  "npu_arch": "dav-2201",
+  "clock_hz": 50000000,
+  "ub_bytes": 196608,
+  "used_aiv_count": 1,
+  "dtype": "uint32 for performance; five dtypes in smoke only",
+  "unique_performance_configs": 478,
+  "timing_samples": 19120,
+  "total_launches": 41962,
+  "runs": [
+    {
+      "run": "capacity-smoke-01",
+      "kind": "correctness_smoke",
+      "status": "validated",
+      "cases": 14,
+      "launches": 98,
+      "manifest_sha256": "beb4662798dec47960a12ee9bcfab9f23e8432f13258e18cb2a1a1c4490e0139",
+      "library_sha256": "bbd686140a4cd0e050285cf75d2a835c3a7f61ff588621c8012b38104b99abd5",
+      "kernel_sha256": "f6ec907922149b2bbb65d8676366d0f56038135553f7925a78a19e11e5ddb578"
+    },
+    {
+      "run": "long-window-1",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 6,
+      "launches": 258,
+      "manifest_sha256": "3101dab2415c51cfbb6107347f268efd9c623c5b2462cf4fd441293908452df0",
+      "library_sha256": "bbd686140a4cd0e050285cf75d2a835c3a7f61ff588621c8012b38104b99abd5",
+      "kernel_sha256": "f6ec907922149b2bbb65d8676366d0f56038135553f7925a78a19e11e5ddb578"
+    },
+    {
+      "run": "long-window-2",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 6,
+      "launches": 258,
+      "manifest_sha256": "24aaea60f58c013f037c01d73f4e69d064c86f5878897eacadece32c3f9a4475",
+      "library_sha256": "bbd686140a4cd0e050285cf75d2a835c3a7f61ff588621c8012b38104b99abd5",
+      "kernel_sha256": "f6ec907922149b2bbb65d8676366d0f56038135553f7925a78a19e11e5ddb578"
+    },
+    {
+      "run": "sweep-ring-1",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 90,
+      "launches": 3870,
+      "manifest_sha256": "4dba89e8b10c840cad6804278fbc1dab0e25f36197a19bccd05ed3cecce96849",
+      "library_sha256": "bbd686140a4cd0e050285cf75d2a835c3a7f61ff588621c8012b38104b99abd5",
+      "kernel_sha256": "f6ec907922149b2bbb65d8676366d0f56038135553f7925a78a19e11e5ddb578"
+    },
+    {
+      "run": "sweep-ring-2",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 90,
+      "launches": 3870,
+      "manifest_sha256": "038dbf60fb6718111b5c9cc578e5900e32ae36ccc6a25d7d0043028112bf9dd8",
+      "library_sha256": "bbd686140a4cd0e050285cf75d2a835c3a7f61ff588621c8012b38104b99abd5",
+      "kernel_sha256": "f6ec907922149b2bbb65d8676366d0f56038135553f7925a78a19e11e5ddb578"
+    },
+    {
+      "run": "sweep-small-1",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 162,
+      "launches": 6966,
+      "manifest_sha256": "e6d99df9729d7b693f9d09385803e375a0799a7c58109679f3894483b3bc5158",
+      "library_sha256": "bbd686140a4cd0e050285cf75d2a835c3a7f61ff588621c8012b38104b99abd5",
+      "kernel_sha256": "f6ec907922149b2bbb65d8676366d0f56038135553f7925a78a19e11e5ddb578"
+    },
+    {
+      "run": "sweep-small-2",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 162,
+      "launches": 6966,
+      "manifest_sha256": "1305b16880d7ef0f173bcc13549ddfa1de55e24797d71c176aee63aff8a456fb",
+      "library_sha256": "bbd686140a4cd0e050285cf75d2a835c3a7f61ff588621c8012b38104b99abd5",
+      "kernel_sha256": "f6ec907922149b2bbb65d8676366d0f56038135553f7925a78a19e11e5ddb578"
+    },
+    {
+      "run": "w2-ring-long-1",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 74,
+      "launches": 3182,
+      "manifest_sha256": "061e9d9c59460913a4878de400024010b561d5ebba2869112f57a1461f519bdf",
+      "library_sha256": "9b8659a208c5fbcf6ad0965c74f1cce78fa5f16200008fa8e9c7827e1a5f9362",
+      "kernel_sha256": "94e0a2b17d439f4417f3250dca85e045f1ca0c62f290e4a65520012751aeb40a"
+    },
+    {
+      "run": "w2-ring-long-2",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 74,
+      "launches": 3182,
+      "manifest_sha256": "456514b0b9c21585d9ad96c09a04e1331b02dc40dca58b3302ee33dee4ee1dc9",
+      "library_sha256": "9b8659a208c5fbcf6ad0965c74f1cce78fa5f16200008fa8e9c7827e1a5f9362",
+      "kernel_sha256": "94e0a2b17d439f4417f3250dca85e045f1ca0c62f290e4a65520012751aeb40a"
+    },
+    {
+      "run": "w2-small-long-1",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 146,
+      "launches": 6278,
+      "manifest_sha256": "9d8b520d6a9562bfb44fc99ca0ed62fd6c7c985a48c43aaaeee6cf371dc1ac4c",
+      "library_sha256": "9b8659a208c5fbcf6ad0965c74f1cce78fa5f16200008fa8e9c7827e1a5f9362",
+      "kernel_sha256": "94e0a2b17d439f4417f3250dca85e045f1ca0c62f290e4a65520012751aeb40a"
+    },
+    {
+      "run": "w2-small-long-2",
+      "kind": "performance",
+      "status": "validated",
+      "cases": 146,
+      "launches": 6278,
+      "manifest_sha256": "eb0285c4a601314ac24ec34a39f8b15c70971c76cc25bbcf736653101fe05dc8",
+      "library_sha256": "9b8659a208c5fbcf6ad0965c74f1cce78fa5f16200008fa8e9c7827e1a5f9362",
+      "kernel_sha256": "94e0a2b17d439f4417f3250dca85e045f1ca0c62f290e4a65520012751aeb40a"
+    },
+    {
+      "run": "windows-capacity-smoke-01",
+      "kind": "correctness_smoke",
+      "status": "validated",
+      "cases": 14,
+      "launches": 98,
+      "manifest_sha256": "20a8094e73580a736687f53abd7e7b678f2b45358f74e8665da050a5d77bcfc3",
+      "library_sha256": "9b8659a208c5fbcf6ad0965c74f1cce78fa5f16200008fa8e9c7827e1a5f9362",
+      "kernel_sha256": "94e0a2b17d439f4417f3250dca85e045f1ca0c62f290e4a65520012751aeb40a"
+    },
+    {
+      "run": "windows-oracle-smoke-01",
+      "kind": "correctness_smoke",
+      "status": "validated",
+      "cases": 94,
+      "launches": 658,
+      "manifest_sha256": "ac7d49166adfe6182d92377b5ef0f4dbad477e1cbad978e0fa0c3a9303ada4cf",
+      "library_sha256": "9b8659a208c5fbcf6ad0965c74f1cce78fa5f16200008fa8e9c7827e1a5f9362",
+      "kernel_sha256": "94e0a2b17d439f4417f3250dca85e045f1ca0c62f290e4a65520012751aeb40a"
+    }
+  ]
+}
