@@ -20,6 +20,8 @@
 3. 调用 `$ascend-kernel-trace` 调试真实算子，或 `$ascend-micro-benchmark` 验证接口。两个 skill 均要求区分已设计、已实现和已验证。
 4. 按 [运行说明](docs/quickstart.md) 复现已验证实验，再依据 [实施顺序](docs/roadmap.md) 扩展。
 
+950 SIMT：[源码热点探针与实测边界](docs/simt-source-probe.md)、[下一轮重放状态对照与回传](docs/simt-replay-state.md)。
+
 ## Skill 安装
 
 规范源目录为 `skills/ascend-kernel-trace/` 和 `skills/ascend-micro-benchmark/`，保持在 Git 仓库中。全局安装只创建指向源目录的绝对路径符号链接。首次安装前检查同名入口，保留已有内容。链接到用户的 `~/.codex/skills/` 后，重新加载或新建任务使其可发现。
