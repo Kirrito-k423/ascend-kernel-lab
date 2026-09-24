@@ -19,7 +19,7 @@ def identity(manifest):
                 cache_policy='default; reused ring; coldness unverified')
 
 
-def analyse(root):
+def analyse(root, render_figures=True):
     root = Path(root)
     manifest = json.loads((root/'manifest.json').read_text())
     if manifest.get('schema') != SCHEMA or manifest.get('status') != 'validated':
@@ -87,7 +87,8 @@ def analyse(root):
     with (root/'summary.csv').open('w') as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
     (root/'catalog.json').write_text(json.dumps(dict(schema='akl.datacopy.catalog.v1', entries=entries), ensure_ascii=False, indent=2))
-    render(root, manifest, rows)
+    if render_figures:
+        render(root, manifest, rows)
     return rows
 
 
