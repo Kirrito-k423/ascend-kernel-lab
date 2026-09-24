@@ -28,11 +28,12 @@ class CopyCase:
     batch: int = 1
     slots: int = 1
     control: str = 'payload'
+    windows: int = 1
 
     def params(self):
         if not re.fullmatch(r'[A-Za-z0-9_-]+', self.name):
             raise ValueError('case 名称必须是安全文件名')
-        numeric = ('block_bytes', 'blocks', 'gm_gap_bytes', 'gm_offset_bytes', 'ub_offset_bytes', 'loops', 'batch', 'slots')
+        numeric = ('block_bytes', 'blocks', 'gm_gap_bytes', 'gm_offset_bytes', 'ub_offset_bytes', 'loops', 'batch', 'slots', 'windows')
         if any(type(getattr(self, k)) is not int or not 0 <= getattr(self, k) <= 0xffffffff for k in numeric):
             raise ValueError('整数参数必须为 uint32')
         if self.direction not in ('GM_UB', 'UB_GM') or self.api not in APIS or self.dtype not in ('uint32', 'float16', 'bfloat16', 'float32', 'uint8'):
@@ -41,7 +42,9 @@ class CopyCase:
             raise ValueError('未实现的 control')
         if not 1 <= self.loops <= 100000 or not 1 <= self.batch <= 64:
             raise ValueError('loops/batch 越界')
-        if not self.batch <= self.slots <= 65536 or self.slots % self.batch or self.loops * self.batch < self.slots:
+        if self.windows not in (1, 2) or self.loops < self.windows:
+            raise ValueError('windows 只支持1（每批完成）/2（双窗口）；每个窗口至少执行一次')
+        if not self.batch * self.windows <= self.slots <= 65536 or self.slots % self.batch or self.loops * self.batch < self.slots:
             raise ValueError('slots 必须为 batch 整数倍且每个 slot 至少访问一次')
         if not 1 <= self.blocks <= 4095 or not self.block_bytes:
             raise ValueError('block 参数超过本实现边界')
@@ -65,7 +68,7 @@ class CopyCase:
         ub_stride = align(self.ub_offset_bytes + self.blocks * align(self.block_bytes))
         # 这里只限制主机分配；真实 UB 容量由 runner 查询后逐项检查。
         # 不能用固定 128KiB 软件预算截断不同芯片的吞吐扫描。
-        if ub_stride * self.batch + 320 > 256 * 1024 * 1024:
+        if ub_stride * self.batch * self.windows + 320 > 256 * 1024 * 1024:
             raise ValueError('UB 布局超过 256MiB 主机分配上限')
         if gm_stride * self.slots > 256 * 1024 * 1024:
             raise ValueError('GM 工作集超过 256MiB 实验上限')
@@ -74,7 +77,7 @@ class CopyCase:
                     gm_offset_bytes=self.gm_offset_bytes, ub_offset_bytes=self.ub_offset_bytes,
                     loops=self.loops, batch=self.batch, control=('payload', 'sync_only', 'empty').index(self.control),
                     slots=self.slots, gm_stride_bytes=gm_stride, ub_stride_bytes=ub_stride,
-                    reserved0={'bfloat16':1, 'float32':2}.get(self.dtype,0), reserved1=0)
+                    reserved0={'bfloat16':1, 'float32':2}.get(self.dtype,0), reserved1=self.windows - 1)
 
     def pack(self):
         p = self.params()
@@ -83,15 +86,17 @@ class CopyCase:
     def signature(self):
         """不跨 shape、同步、缓存、dtype 推断；循环数保留以约束摊销条件。"""
         self.params()
-        return {k: v for k, v in asdict(self).items() if k != 'name'}
+        # 默认模式继续匹配早期归档；双窗口必须有独立的签名。
+        return {k: v for k, v in asdict(self).items() if k != 'name' and not (k == 'windows' and v == 1)}
 
     def layout(self):
         p = self.params()
         return dict(payload_bytes_per_call=self.block_bytes * self.blocks,
                     calls=self.loops * self.batch, aiv_count=1, implementation='AscendC_MTE',
-                    measurement='serialized_completion' if self.batch == 1 else 'batched_completion',
+                    measurement=('pipelined_completion' if self.windows == 2 else
+                                 'serialized_completion' if self.batch == 1 else 'batched_completion'),
                     gm_working_set_bytes=p['gm_stride_bytes'] * self.slots,
-                    ub_working_set_bytes=p['ub_stride_bytes'] * self.batch,
+                    ub_working_set_bytes=p['ub_stride_bytes'] * self.batch * self.windows,
                     cache_policy='default; reused ring; coldness unverified',
                     gm_gap_bytes=self.gm_gap_bytes, gm_pitch_bytes=self.block_bytes + self.gm_gap_bytes,
                     ub_pitch_bytes=align(self.block_bytes),
@@ -106,7 +111,7 @@ def make_buffers(case):
     import numpy as np
     p = case.params()
     gm_size = p['gm_stride_bytes'] * case.slots
-    ub_size = p['ub_stride_bytes'] * case.batch
+    ub_size = p['ub_stride_bytes'] * case.batch * case.windows
     size = gm_size if case.direction == 'GM_UB' else ub_size
     # FP16 使用有限正规数的原始位模式，避免 NaN 表示差异。
     if case.dtype in ('float16', 'bfloat16'):
@@ -122,8 +127,10 @@ def make_buffers(case):
     if case.direction == 'GM_UB':
         # Pad 的补齐区没有值语义，只有有效 payload 和 GM 输出保护区用于判定。
         defined[:ub_size] = False
-        for j in range(case.batch):
-            slot = ((case.loops - 1) * case.batch + j) % case.slots
+        for j in range(case.batch * case.windows):
+            # 每个 UB 窗口最后写入的 group；奇数 loops 不能把两窗口都当最后一批。
+            group = case.loops - 1 - (case.loops - 1 - j // case.batch) % case.windows
+            slot = (group * case.batch + j % case.batch) % case.slots
             for b in range(case.blocks):
                 src = slot * p['gm_stride_bytes'] + case.gm_offset_bytes + b * (case.block_bytes + case.gm_gap_bytes)
                 dst = j * p['ub_stride_bytes'] + case.ub_offset_bytes + b * align(case.block_bytes)
@@ -131,7 +138,9 @@ def make_buffers(case):
                 defined[dst:dst + case.block_bytes] = True
     else:
         for slot in range(case.slots):
-            j = slot % case.batch
+            # 最后一次写该 GM slot 的 group 决定使用哪个 UB 窗口。
+            group = case.loops - 1 - (case.loops - 1 - slot // case.batch) % (case.slots // case.batch)
+            j = (group % case.windows) * case.batch + slot % case.batch
             for b in range(case.blocks):
                 src = j * p['ub_stride_bytes'] + case.ub_offset_bytes + b * align(case.block_bytes)
                 dst = slot * p['gm_stride_bytes'] + case.gm_offset_bytes + b * (case.block_bytes + case.gm_gap_bytes)

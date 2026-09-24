@@ -38,13 +38,26 @@ __aicore__ inline void CopyOne(LocalTensor<T> ub, GlobalTensor<T> gm, const akl:
     }
 }
 
-template<typename T, bool Store, bool Trace>
+template<bool Store, bool Set>
+__aicore__ inline void WindowEvent(uint32_t bank) {
+    const auto event = bank ? EVENT_ID1 : EVENT_ID0;
+    if constexpr (Store) {
+        if constexpr (Set) SetFlag<HardEvent::MTE3_S>(event);
+        else WaitFlag<HardEvent::MTE3_S>(event);
+    } else {
+        if constexpr (Set) SetFlag<HardEvent::MTE2_S>(event);
+        else WaitFlag<HardEvent::MTE2_S>(event);
+    }
+}
+
+template<typename T, bool Store, bool Trace, bool Pipeline = false>
 __aicore__ inline void Run(GM_ADDR x, GM_ADDR y, GM_ADDR record, const akl::CopyParams& p) {
     akl::Recorder<Trace> trace;
     trace.Mark(0);
     TPipe pipe;
     TBuf<TPosition::VECCALC> dataBuf, traceBuf;
-    const uint32_t ubBytes = p.batch * p.ub_stride_bytes;
+    constexpr uint32_t windows = Pipeline ? 2 : 1;
+    const uint32_t ubBytes = p.batch * p.ub_stride_bytes * windows;
     pipe.InitBuffer(dataBuf, ubBytes);
     if constexpr (Trace) pipe.InitBuffer(traceBuf, akl::kWords * sizeof(uint64_t));
     auto data = dataBuf.Get<T>();
@@ -65,15 +78,31 @@ __aicore__ inline void Run(GM_ADDR x, GM_ADDR y, GM_ADDR record, const akl::Copy
     trace.Mark(1);
     trace.Mark(2);
     for (uint32_t group = 0; group < p.loops; ++group) {
+        const uint32_t bank = Pipeline ? group % 2 : 0;
+        if constexpr (Pipeline) {
+            // 每个事件只保护自己的 UB 窗口。复用前等待旧 DMA 完成；
+            // 另一窗口仍可在途，避免每一批都主动排空整个 MTE 流水。
+            if (group >= 2 && p.control != 2) WindowEvent<Store, false>(bank);
+        }
         for (uint32_t j = 0; j < p.batch; ++j) {
             if (p.control == 0) {
                 const uint32_t slot = (group * p.batch + j) % p.slots;
-                auto ub = data[(j * p.ub_stride_bytes + p.ub_offset_bytes) / sizeof(T)];
+                auto ub = data[((bank * p.batch + j) * p.ub_stride_bytes + p.ub_offset_bytes) / sizeof(T)];
                 if constexpr (Store) CopyOne<T, true>(ub, output[(slot * p.gm_stride_bytes + p.gm_offset_bytes) / sizeof(T)], p);
                 else CopyOne<T, false>(ub, input[(slot * p.gm_stride_bytes + p.gm_offset_bytes) / sizeof(T)], p);
             } else asm volatile("" ::: "memory");
         }
-        if (p.control != 2) Complete<Store>();
+        if (p.control != 2) {
+            if constexpr (Pipeline) WindowEvent<Store, true>(bank);
+            else Complete<Store>();
+        }
+    }
+    if constexpr (Pipeline) {
+        // loops>=2；两个窗口最后的完成事件都必须计入结束时间。
+        if (p.control != 2) {
+            WindowEvent<Store, false>(0);
+            WindowEvent<Store, false>(1);
+        }
     }
     trace.Mark(3);
     if constexpr (!Store) {
@@ -86,7 +115,18 @@ __aicore__ inline void Run(GM_ADDR x, GM_ADDR y, GM_ADDR record, const akl::Copy
     SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
     WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
     trace.Mark(4);
-    if constexpr (Trace) trace.Flush(record, traceBuf.Get<uint64_t>(), p.control == 0 ? p.block_bytes * p.blocks * p.batch : 0);
+    if constexpr (Trace) trace.Flush(record, traceBuf.Get<uint64_t>(), p.control == 0 ? p.block_bytes * p.blocks * p.batch * windows : 0);
+}
+
+template<typename T, bool Trace>
+__aicore__ inline void SelectRun(GM_ADDR x, GM_ADDR y, GM_ADDR record, const akl::CopyParams& p) {
+    if (p.reserved1 == 1) {
+        if (p.direction) Run<T, true, Trace, true>(x, y, record, p);
+        else Run<T, false, Trace, true>(x, y, record, p);
+    } else {
+        if (p.direction) Run<T, true, Trace>(x, y, record, p);
+        else Run<T, false, Trace>(x, y, record, p);
+    }
 }
 
 template<bool Trace>
@@ -97,20 +137,15 @@ __aicore__ inline void Entry(GM_ADDR x, GM_ADDR y, GM_ADDR record, GM_ADDR confi
     for (uint32_t i = 0; i < sizeof(p) / 4; ++i) dst[i] = src[i];
     // 显式实例化真实数据类型；不把 BF16/FP16 的数值运算用于拷贝 oracle。
     if (p.reserved0 == 1) {
-        if (p.direction) Run<bfloat16_t, true, Trace>(x, y, record, p);
-        else Run<bfloat16_t, false, Trace>(x, y, record, p);
+        SelectRun<bfloat16_t, Trace>(x, y, record, p);
     } else if (p.reserved0 == 2) {
-        if (p.direction) Run<float, true, Trace>(x, y, record, p);
-        else Run<float, false, Trace>(x, y, record, p);
+        SelectRun<float, Trace>(x, y, record, p);
     } else if (p.element_bytes == 1) {
-        if (p.direction) Run<uint8_t, true, Trace>(x, y, record, p);
-        else Run<uint8_t, false, Trace>(x, y, record, p);
+        SelectRun<uint8_t, Trace>(x, y, record, p);
     } else if (p.element_bytes == 2) {
-        if (p.direction) Run<half, true, Trace>(x, y, record, p);
-        else Run<half, false, Trace>(x, y, record, p);
+        SelectRun<half, Trace>(x, y, record, p);
     } else {
-        if (p.direction) Run<uint32_t, true, Trace>(x, y, record, p);
-        else Run<uint32_t, false, Trace>(x, y, record, p);
+        SelectRun<uint32_t, Trace>(x, y, record, p);
     }
 }
 extern "C" __global__ __aicore__ void akl_copy_trace(GM_ADDR x, GM_ADDR y, GM_ADDR record, GM_ADDR p) {
