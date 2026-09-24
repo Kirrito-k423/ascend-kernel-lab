@@ -43,7 +43,7 @@ class CopyCase:
             raise ValueError('loops/batch 越界')
         if not self.batch <= self.slots <= 65536 or self.slots % self.batch or self.loops * self.batch < self.slots:
             raise ValueError('slots 必须为 batch 整数倍且每个 slot 至少访问一次')
-        if not 1 <= self.blocks <= 4095 or not 1 <= self.block_bytes <= 65535:
+        if not 1 <= self.blocks <= 4095 or not self.block_bytes:
             raise ValueError('block 参数超过本实现边界')
         element = 2 if self.dtype in ('float16', 'bfloat16') else 1 if self.dtype == 'uint8' else 4
         if any(v % element for v in (self.block_bytes, self.gm_gap_bytes, self.gm_offset_bytes)):
@@ -51,6 +51,10 @@ class CopyCase:
         if self.ub_offset_bytes % 32:
             raise ValueError('UB 地址必须按 32B 对齐')
         pad = self.api == 'DataCopyPad_params'
+        # 同为 uint16 blockLen，Pad 以字节计，普通 params 以 32B 块计。
+        # count 路径最终也使用 DMA 块长度；这里保留相同的单段上界。
+        if self.block_bytes > (65535 if pad else 65535 * 32):
+            raise ValueError('block 长度超出对应重载字段')
         if not pad and any(v % 32 for v in (self.block_bytes, self.gm_gap_bytes, self.gm_offset_bytes)):
             raise ValueError('DataCopy 必须按 32B 对齐；非对齐实验使用 DataCopyPad')
         if self.gm_gap_bytes > (65535 if pad else 65535 * 32):
@@ -59,8 +63,10 @@ class CopyCase:
             raise ValueError('count 重载只支持单段连续拷贝')
         gm_stride = align(self.gm_offset_bytes + self.blocks * self.block_bytes + (self.blocks - 1) * self.gm_gap_bytes)
         ub_stride = align(self.ub_offset_bytes + self.blocks * align(self.block_bytes))
-        if ub_stride * self.batch + 320 > 128 * 1024:
-            raise ValueError('UB 用量超出本实验保守预算；还需运行时容量检查')
+        # 这里只限制主机分配；真实 UB 容量由 runner 查询后逐项检查。
+        # 不能用固定 128KiB 软件预算截断不同芯片的吞吐扫描。
+        if ub_stride * self.batch + 320 > 256 * 1024 * 1024:
+            raise ValueError('UB 布局超过 256MiB 主机分配上限')
         if gm_stride * self.slots > 256 * 1024 * 1024:
             raise ValueError('GM 工作集超过 256MiB 实验上限')
         return dict(direction=int(self.direction == 'UB_GM'), api=APIS.index(self.api), element_bytes=element,
@@ -143,6 +149,8 @@ def suite():
                                  block_bytes=n, batch=batch, slots=batch)
                     try: c.params()
                     except ValueError: continue
+                    # 保留已发布基础矩阵；容量扩展由 datacopy_sweep 显式规划。
+                    if c.layout()['ub_working_set_bytes'] + 320 > 128 * 1024: continue
                     cases.append(c)
         for n, blocks, gap in ((32, 16, 480), (480, 16, 32), (480, 31, 32)):
             cases.append(CopyCase(f'{direction}_strided_{n}_{blocks}_{gap}', direction=direction,
