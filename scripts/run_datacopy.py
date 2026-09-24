@@ -83,7 +83,7 @@ def execute(args):
         # 完整矩阵先检查容量；不能测到半途才发现大 shape 超出 UB。
         for case in cases:
             p = case.params()
-            if p['ub_stride_bytes'] * case.batch + WORDS*8 > hardware['ub_bytes']: raise ValueError('实际 UB 不足')
+            if case.layout()['ub_working_set_bytes'] + WORDS*8 > hardware['ub_bytes']: raise ValueError('实际 UB 不足')
         for case in cases:
             p = case.params()
             folder = out/case.name
@@ -104,7 +104,7 @@ def execute(args):
                 pair = [(True, False), (False, False)]
                 random.Random(args.seed+i).shuffle(pair)
                 launches.extend(pair)
-            retained = case.block_bytes * case.blocks * case.batch if case.control == 'payload' else 0
+            retained = case.block_bytes * case.blocks * case.batch * case.windows if case.control == 'payload' else 0
             with (folder/'events.jsonl').open('w') as events_file:
                 for launch, (trace, warmup) in enumerate(launches):
                     y.fill(0xa5)

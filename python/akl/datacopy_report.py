@@ -19,7 +19,7 @@ def identity(manifest):
                 cache_policy='default; reused ring; coldness unverified')
 
 
-def analyse(root):
+def analyse(root, render_figures=True):
     root = Path(root)
     manifest = json.loads((root/'manifest.json').read_text())
     if manifest.get('schema') != SCHEMA or manifest.get('status') != 'validated':
@@ -43,7 +43,7 @@ def analyse(root):
         if record['layout'] not in (layout, legacy_layout): raise ValueError('layout 与参数不一致')
         # 首轮采集的 count 元数据展示为32B块数，kernel的真实长度始终按元素。
         # 只兼容这个可由精确params验证的展示差异；保留原manifest与raw，不改采样值。
-        expected_retained = case.block_bytes*case.blocks*case.batch if case.control=='payload' else 0
+        expected_retained = case.block_bytes*case.blocks*case.batch*case.windows if case.control=='payload' else 0
         if record['expected_retained'] != expected_retained: raise ValueError('oracle 输出数量不符')
         samples = json.loads((root/case.name/'samples.json').read_text())
         if len(samples) != record['launches'] or not samples: raise ValueError('样本数量不一致')
@@ -65,7 +65,7 @@ def analyse(root):
         payload = case.block_bytes*case.blocks if case.control == 'payload' else 0
         row = dict(name=case.name, direction=case.direction, api=case.api, dtype=case.dtype,
                    block_bytes=case.block_bytes, blocks=case.blocks, gm_gap_bytes=case.gm_gap_bytes,
-                   batch=case.batch, slots=case.slots, loops=case.loops, control=case.control,
+                   batch=case.batch, slots=case.slots, loops=case.loops, control=case.control, windows=case.windows,
                    samples=len(values), p50_us_per_call=p50, p95_us_per_call=p95,
                    min_us_per_call=min(values), max_us_per_call=max(values), std_us_per_call=float(np.std(values)),
                    payload_bytes_per_call=payload,
@@ -87,7 +87,8 @@ def analyse(root):
     with (root/'summary.csv').open('w') as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
     (root/'catalog.json').write_text(json.dumps(dict(schema='akl.datacopy.catalog.v1', entries=entries), ensure_ascii=False, indent=2))
-    render(root, manifest, rows)
+    if render_figures:
+        render(root, manifest, rows)
     return rows
 
 
@@ -101,10 +102,10 @@ def render(root, manifest, rows):
                                     ('payload_GBps_at_p50','Effective payload (GB/s), one AIV','throughput')):
         fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
         for ax, direction in zip(axes, ('GM_UB','UB_GM')):
-            groups = sorted({(r['api'],r['dtype'],r['batch'],r['slots'],r['loops']) for r in main if r['direction']==direction})
-            for api, dtype, batch, slots, loops in groups:
-                values = sorted((r for r in main if (r['direction'],r['api'],r['dtype'],r['batch'],r['slots'],r['loops']) == (direction,api,dtype,batch,slots,loops)),key=lambda r:r['block_bytes'])
-                label = f"{api.replace('DataCopy','DC')} / {dtype} / B{batch} S{slots} L{loops}"
+            groups = sorted({(r['api'],r['dtype'],r['batch'],r['slots'],r['loops'],r['windows']) for r in main if r['direction']==direction})
+            for api, dtype, batch, slots, loops, windows in groups:
+                values = sorted((r for r in main if (r['direction'],r['api'],r['dtype'],r['batch'],r['slots'],r['loops'],r['windows']) == (direction,api,dtype,batch,slots,loops,windows)),key=lambda r:r['block_bytes'])
+                label = f"{api.replace('DataCopy','DC')} / {dtype} / B{batch} S{slots} L{loops} W{windows}"
                 ax.plot([r['block_bytes'] for r in values],[r[metric] for r in values],marker='o',markersize=3,label=label)
                 if metric=='p50_us_per_call':
                     ax.fill_between([r['block_bytes'] for r in values],[r[metric] for r in values],[r['p95_us_per_call'] for r in values],alpha=.09)
@@ -124,7 +125,7 @@ def render(root, manifest, rows):
         plt.close(fig)
     total = sum(r['launches'] for r in manifest['cases'])
     lines = ['# DataCopy 单 AIV 实测基线','',f"环境：{manifest['profile']['soc']} / {manifest['profile']['topology']}。{len(rows)} 个配置、{total} 次启动均通过 payload、跨步写 gap 与输出保护区检查。",
-             '', '计时为循环总完成时间除以调用次数；batch=1 每次等待完成，batch>1 每批等待完成。所有值包括循环、分支、地址计算和同步，未扣除空循环。GB/s 只统计有效搬运字节，不包含地址跨度，不代表物理 HBM 带宽。',
+             '', '计时为循环总完成时间除以调用次数。windows=1时每批等待完成；windows=2时使用两个独立UB窗口，复用前等该窗口完成，并在计时结束前排空。所有值包括循环、分支、地址计算和同步，未扣除空循环。GB/s 只统计有效搬运字节，不包含地址跨度，不代表物理 HBM 带宽。',
              '', '运行前后 npu-smi 均未观察到其他 NPU 进程；不能排除采样间短暂干扰。固定工作集可能命中缓存，大环形工作集也不自动叫冷缓存。',
              '', '本目录 catalog.json 是匹配条件下的经验参考，不是理论最优值。SIMT、REG、远端 GM 和 A5 PoD 需独立实验。',
              '', '![延迟](latency.png)','', '![吞吐](throughput.png)','',

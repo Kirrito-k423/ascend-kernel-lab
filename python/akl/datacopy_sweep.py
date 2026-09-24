@@ -9,33 +9,35 @@ from .datacopy import CopyCase
 from .cases import WORDS
 
 
-def plan(ub_bytes, mode='small', ring_bytes=64 * 1024 * 1024):
+def plan(ub_bytes, mode='small', ring_bytes=64 * 1024 * 1024, windows=1, min_loops=128):
     if type(ub_bytes) is not int or not WORDS * 8 + 32 <= ub_bytes <= 256 * 1024 * 1024:
         raise ValueError('请提供目标设备实际 UB 字节容量')
     if mode not in ('small', 'ring') or not 32 <= ring_bytes <= 255 * 1024 * 1024:
         raise ValueError('工作集参数越界')
+    if windows not in (1, 2) or type(min_loops) is not int or not windows <= min_loops <= 100000:
+        raise ValueError('windows/min_loops 越界')
     cases, skipped = [], []
     for batch in (1, 2, 4, 8, 16, 32, 64):
-        maximum = min((ub_bytes - WORDS * 8) // batch // 32 * 32, 65535 * 32)
+        maximum = min((ub_bytes - WORDS * 8) // (batch * windows) // 32 * 32, 65535 * 32)
         sizes = sorted({32 * 2 ** n for n in range(16) if 32 * 2 ** n <= maximum}
                        | {n for n in (14336, maximum) if 32 <= n <= maximum})
         for size in sizes:
             # ring 不够大时跳过，不能把逐渐变大的小工作集接成同一条大环曲线。
-            slots = batch if mode == 'small' else (ring_bytes + size * batch - 1) // (size * batch) * batch
-            loops = max(128, 2 * slots // batch)
+            slots = batch * windows if mode == 'small' else max(batch * windows, (ring_bytes + size * batch - 1) // (size * batch) * batch)
+            loops = max(min_loops, 2 * slots // batch)
             if slots > 65536 or loops > 100000 or slots * size > 256 * 1024 * 1024:
                 skipped.append(dict(batch=batch, bytes=size, reason='ring 超出槽位/循环/GM 上限'))
                 continue
             for direction in ('GM_UB', 'UB_GM'):
                 case = CopyCase(f'{mode}_{direction}_{size}_b{batch}', direction=direction,
-                                block_bytes=size, batch=batch, slots=slots, loops=loops)
+                                block_bytes=size, batch=batch, slots=slots, loops=loops, windows=windows)
                 case.params()
                 cases.append(asdict(case))
     if not cases:
         raise ValueError('没有合法配置')
-    return dict(schema='akl.datacopy.sweep.v1', ub_bytes=ub_bytes, mode=mode,
+    return dict(schema='akl.datacopy.sweep.v1', ub_bytes=ub_bytes, mode=mode, windows=windows, min_loops=min_loops,
                 requested_ring_bytes=ring_bytes if mode == 'ring' else None,
-                conditions='one AIV; uint32; DataCopy_params; batch completion; default cache policy',
+                conditions=f"one AIV; uint32; DataCopy_params; {'batch' if windows == 1 else 'two-window'} completion; default cache policy",
                 cases=cases, skipped=skipped)
 
 
@@ -60,7 +62,10 @@ def report(spec, runs, output):
         raise ValueError('需要至少两次独立运行，不能重复使用同一个目录')
     if spec.get('schema') != 'akl.datacopy.sweep.v1':
         raise ValueError('未知扫描计划')
-    if spec != plan(spec['ub_bytes'], spec['mode'], spec['requested_ring_bytes'] or 64 * 1024 * 1024):
+    # 旧计划未记录windows/min_loops；默认行为保持一致，仍逐配置核对。
+    spec = dict(spec, windows=spec.get('windows', 1), min_loops=spec.get('min_loops', 128),
+                cases=[asdict(CopyCase(**c)) for c in spec['cases']])
+    if spec != plan(spec['ub_bytes'], spec['mode'], spec['requested_ring_bytes'] or 64 * 1024 * 1024, spec['windows'], spec['min_loops']):
         raise ValueError('扫描计划与容量/工作集规则不符')
     cases = {c['name']: c for c in spec['cases']}
     if len(cases) != len(spec['cases']) or not cases:
@@ -68,7 +73,7 @@ def report(spec, runs, output):
     tables, manifests, hashes = [], [], []
     for run in runs:
         m = json.loads((run / 'manifest.json').read_text())
-        if {c['case']['name']: c['case'] for c in m['cases']} != cases:
+        if {c['case']['name']: asdict(CopyCase(**c['case'])) for c in m['cases']} != cases:
             raise ValueError('运行配置与扫描计划不符')
         if m['hardware']['ub_bytes'] != spec['ub_bytes']:
             raise ValueError('计划 UB 容量与实际设备不符')
@@ -96,7 +101,7 @@ def report(spec, runs, output):
             if series:
                 groups.append(dict(direction=direction, batch=batch, plateau=plateau(series), points=series))
     result = dict(schema='akl.datacopy.sweep-report.v1', conclusion='no_hardware_upper_bound_claim',
-                  mode=spec['mode'], manifests_sha256=hashes, groups=groups)
+                  mode=spec['mode'], windows=spec['windows'], min_loops=spec['min_loops'], manifests_sha256=hashes, groups=groups)
     output.mkdir(parents=True, exist_ok=False)
     (output / 'saturation.json').write_text(json.dumps(result, indent=2))
     import matplotlib
@@ -106,7 +111,7 @@ def report(spec, runs, output):
     lines = ['# 单 AIV 批量完成吞吐扫描', '',
              '每条线固定 batch；点为各轮 p50 吞吐的中位数，阴影为各轮范围。原始样本已逐条核对。', '',
              '末尾三个尺寸跨度至少 2 倍、各轮带宽总差异不超过 10%、每点 p95/p50 不超过 1.10，才标记“平台候选”。该筛选规则不能证明硬件峰值；没有通过就继续扩大范围或检查发射/同步瓶颈。', '',
-             '批量完成仍会在每批末尾排空；平台可能来自该实现的发射或同步限制。small 为重复小工作集，ring 为固定目标容量的环，均未证明绕过缓存。', '',
+             f"windows={spec['windows']}：1为每批完成，2为复用前等待的双窗口流水。平台可能来自该实现的发射或同步限制。small 为重复小工作集，ring 为固定目标容量的环，均未证明绕过缓存。", '',
              '| 方向 | batch | 末端尺寸 B | 检查结果 |', '|---|---:|---|---|']
     for ax, direction in zip(axes, ('GM_UB', 'UB_GM')):
         for g in (g for g in groups if g['direction'] == direction):
@@ -118,7 +123,7 @@ def report(spec, runs, output):
             lines.append(f"| {direction} | {g['batch']} | {g['plateau']['tail_bytes']} | {g['plateau']['status']} |")
         ax.set(xscale='log', xlabel='Bytes per DataCopy call', ylabel='Effective payload GB/s', title=direction)
         ax.set_ylim(bottom=0); ax.grid(alpha=.2); ax.legend(fontsize=8)
-    fig.suptitle(f"{manifests[0]['profile']['soc']} | one AIV | {spec['mode']} | batch completion; no peak claim")
+    fig.suptitle(f"{manifests[0]['profile']['soc']} | one AIV | {spec['mode']} | windows={spec['windows']}; no peak claim")
     fig.tight_layout()
     for extension in ('png', 'svg'):
         fig.savefig(output / f'throughput-sweep.{extension}', dpi=170)
@@ -135,6 +140,8 @@ def main():
     p.add_argument('--ub-bytes', type=int, required=True)
     p.add_argument('--mode', choices=('small', 'ring'), default='small')
     p.add_argument('--ring-mib', type=int, default=64)
+    p.add_argument('--windows', type=int, choices=(1, 2), default=1)
+    p.add_argument('--min-loops', type=int, default=128)
     p.add_argument('--output', type=Path, required=True)
     r = commands.add_parser('report')
     r.add_argument('plan', type=Path)
@@ -142,14 +149,14 @@ def main():
     r.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'plan':
-        spec = plan(args.ub_bytes, args.mode, args.ring_mib * 1024 * 1024)
+        spec = plan(args.ub_bytes, args.mode, args.ring_mib * 1024 * 1024, args.windows, args.min_loops)
         args.output.mkdir(parents=True, exist_ok=False)
         (args.output / 'plan.json').write_text(json.dumps(spec, ensure_ascii=False, indent=2))
         (args.output / 'cases.json').write_text(json.dumps(spec['cases'], indent=2))
         # 每个 batch 的 UB 容量端点先冒烟，防止长矩阵掩盖边界错误。
         largest = {b: max(c['block_bytes'] for c in spec['cases'] if c['batch'] == b)
                    for b in {c['batch'] for c in spec['cases']}}
-        smoke = [dict(c, slots=c['batch'], loops=2) for c in spec['cases']
+        smoke = [dict(c, slots=c['batch'] * args.windows, loops=2) for c in spec['cases']
                  if c['block_bytes'] == largest[c['batch']]]
         (args.output / 'smoke.json').write_text(json.dumps(smoke, indent=2))
         print(f"生成 {len(spec['cases'])} 个配置；跳过 {len(spec['skipped'])} 个容量不符组合，见 plan.json")
