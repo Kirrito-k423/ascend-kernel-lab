@@ -9,8 +9,8 @@ import re
 import shutil
 import signal
 import subprocess
-import tarfile
 import time
+import zipfile
 
 
 def execute(cmd, output, name, manifest, timeout, required=True):
@@ -43,6 +43,24 @@ def execute(cmd, output, name, manifest, timeout, required=True):
     return (output / record["log"]).read_text(errors="replace")
 
 
+def pack_result(output, archive, limit=5_000_000):
+    # 保留全部证据；超限时拒绝交付，不静默删日志或采样文件。
+    temporary = Path(str(archive) + ".partial")
+    stream = temporary.open("xb")
+    try:
+        with stream, zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
+            for path in sorted(output.rglob("*")):
+                if path.is_file() and not path.is_symlink():
+                    bundle.write(path, "simt_probe/" + path.relative_to(output).as_posix())
+        if temporary.stat().st_size >= limit:
+            raise RuntimeError(f"ZIP 超过回传上限（必须小于 {limit} 字节），完整结果保留在 {output}")
+        if archive.exists():
+            raise FileExistsError(f"回传包已存在：{archive}")
+        temporary.rename(archive)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", type=int, required=True, help="ACL 逻辑设备号；先查看 npu-smi")
@@ -62,7 +80,7 @@ def main():
         parser.error("--replay-mode application 需要 --profile")
     root = Path(__file__).resolve().parents[1]
     output = args.output.resolve()
-    archive = Path(str(output) + ".tar.gz")
+    archive = Path(str(output) + ".zip")
     if archive.exists():
         parser.error("回传包已存在，请使用新 output")
     output.mkdir(parents=True, mode=0o700, exist_ok=False)
@@ -148,11 +166,14 @@ def main():
         print(manifest["error"], flush=True)
     finally:
         (output / "manifest.json").write_text(json.dumps(manifest, indent=2))
-        with archive.open("xb") as stream, tarfile.open(fileobj=stream, mode="w:gz") as bundle:
-            bundle.add(output, arcname="simt_probe", filter=lambda item:
-                       item if item.isfile() or item.isdir() else None)
-        print(f"{manifest['status']}；回传包：{archive}", flush=True)
-    return int(manifest["status"] == "failed")
+        try:
+            pack_result(output, archive)
+            print(f"{manifest['status']}；回传包：{archive}（{archive.stat().st_size} 字节）", flush=True)
+        except (OSError, RuntimeError) as error:
+            manifest["archive_error"] = str(error)
+            (output / "manifest.json").write_text(json.dumps(manifest, indent=2))
+            print(f"打包失败：{error}", flush=True)
+    return int(manifest["status"] == "failed" or "archive_error" in manifest)
 
 
 if __name__ == "__main__":
