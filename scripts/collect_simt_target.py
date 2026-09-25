@@ -31,9 +31,8 @@ def sections(data):
         if row[0] >= len(names):
             raise ValueError("节名越界")
         name = names[row[0]:].split(b"\0", 1)[0].decode("utf-8", errors="replace")
-        if name in result:
-            raise ValueError("重复节名，需单独审查镜像边界")
-        result[name] = data[row[4]:row[4] + row[5]] if row[1] != 8 else b""
+        # ELF 允许同名节（例如多个 .group）；保留全部，提取时单独检查设备节唯一性。
+        result.setdefault(name, []).append(data[row[4]:row[4] + row[5]] if row[1] != 8 else b"")
     return result
 
 
@@ -84,9 +83,10 @@ def main():
         run(["git", "-C", repo, "status", "--short"], "worktree")
         outer = sections(object_data)
         manifest["input_sections"] = list(outer)
-        device = object_data if args.device_elf else outer.get(".aicore_binary", b"")
-        if not device:
-            raise ValueError("没有 .aicore_binary；请提供该翻译单元的 .o 或显式 --device-elf")
+        images = [object_data] if args.device_elf else outer.get(".aicore_binary", [])
+        if len(images) != 1:
+            raise ValueError(f"需要唯一 .aicore_binary，实际 {len(images)} 个；或显式 --device-elf")
+        device = images[0]
         if device.count(b"\x7fELF") != 1:
             raise ValueError("设备节有多个 ELF 标记，暂不支持拼接镜像；请回传证据")
         inner = sections(device)
@@ -113,13 +113,17 @@ def main():
         run([dwarf, "--version"], "dwarf-version")
         symbols = run([objdump, "--syms", "--demangle", elf], "symbols")
         info = run([dwarf, "--name=" + re.escape(args.function), "--regex", elf], "function-dwarf")
-        run([dwarf, "--debug-line", elf], "line-table")
-        run([objdump, "-d", "--demangle", "--line-numbers", elf], "assembly")
+        line_table = run([dwarf, "--debug-line", elf], "line-table")
+        assembly = run([objdump, "-d", "--demangle", "--line-numbers", elf], "assembly")
+        # 950 工具可能返回 0 却只输出占位符或解码错误；不能仅依赖退出码。
+        manifest["assembly_unavailable_count"] = assembly.count("<not available>")
+        manifest["dwarf_error_observed"] = "Error in creating MCRegInfo" in info + line_table
         # 名称命中与 debug_line 存在都只是线索，不等于该函数的 PC/行映射已验证。
         manifest.update(status="collected_pending_review",
                         symbol_name_observed=any(args.function in l and ".text" in l for l in symbols.splitlines()),
                         debug_name_observed=any(args.function in l and "DW_AT_" in l and "name" in l for l in info.splitlines()))
-        if any(c["exit_code"] for c in manifest["commands"]):
+        if (any(c["exit_code"] for c in manifest["commands"]) or
+                manifest["assembly_unavailable_count"] or manifest["dwarf_error_observed"]):
             manifest["status"] = "inspection_incomplete"
     except (Exception, KeyboardInterrupt) as error:
         manifest.update(status="failed", error=str(error) or "interrupted")
