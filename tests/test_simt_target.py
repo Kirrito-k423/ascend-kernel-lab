@@ -13,8 +13,9 @@ import collect_simt_target as target
 
 
 def elf(parts, machine=4137):
-    names = b"\0.shstrtab\0" + b"".join(n.encode() + b"\0" for n in parts)
-    entries = [(".shstrtab", names)] + list(parts.items())
+    parts = list(parts.items()) if isinstance(parts, dict) else parts
+    names = b"\0.shstrtab\0" + b"".join(n.encode() + b"\0" for n, _ in parts)
+    entries = [(".shstrtab", names)] + parts
     data, rows = bytearray(64), [(0,) * 10]
     data[:6] = b"\x7fELF\x02\x01"
     struct.pack_into("<H", data, 18, machine)
@@ -30,7 +31,7 @@ def elf(parts, machine=4137):
 class TargetTests(unittest.TestCase):
     def test_section_bounds_and_format(self):
         data = elf({".debug_line": b"lines"})
-        self.assertEqual(target.sections(data)[".debug_line"], b"lines")
+        self.assertEqual(target.sections(data)[".debug_line"], [b"lines"])
         bad_offset = bytearray(data)
         struct.pack_into("<Q", bad_offset, 40, len(data) + 1)
         for bad in (b"", data[:63], data[:5] + b"\x02" + data[6:], data[:-1], bad_offset):
