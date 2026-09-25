@@ -116,7 +116,9 @@ def main():
         info = run([dwarf, "--name=" + re.escape(args.function), "--regex", elf], "function-dwarf")
         line_table = run([dwarf, "--debug-line", elf], "line-table")
         # CANN 显式提供 AICore 解码开关；只在当前工具 help 声明时启用。
-        options = ["-d", "--disassemble-aicore"] if "--disassemble-aicore" in help_text else ["-d"]
+        options = ["-d"]
+        if re.search(r"(?m)^\s*--disassemble-aicore(?:\s|$)", help_text):
+            options.append("--disassemble-aicore")
         manifest["disassembly_options"] = options
         assembly = run([objdump, *options, "--demangle", "--line-numbers", elf], "assembly")
         # 950 工具可能返回 0 却只输出占位符或解码错误；不能仅依赖退出码。
