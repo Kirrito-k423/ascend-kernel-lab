@@ -110,11 +110,15 @@ def main():
             return str(args.tool_dir / name) if args.tool_dir else shutil.which(name) or name
         objdump, dwarf = tool("llvm-objdump"), tool("llvm-dwarfdump")
         run([objdump, "--version"], "objdump-version")
+        help_text = run([objdump, "--help"], "objdump-help")
         run([dwarf, "--version"], "dwarf-version")
         symbols = run([objdump, "--syms", "--demangle", elf], "symbols")
         info = run([dwarf, "--name=" + re.escape(args.function), "--regex", elf], "function-dwarf")
         line_table = run([dwarf, "--debug-line", elf], "line-table")
-        assembly = run([objdump, "-d", "--demangle", "--line-numbers", elf], "assembly")
+        # CANN 显式提供 AICore 解码开关；只在当前工具 help 声明时启用。
+        options = ["-d", "--disassemble-aicore"] if "--disassemble-aicore" in help_text else ["-d"]
+        manifest["disassembly_options"] = options
+        assembly = run([objdump, *options, "--demangle", "--line-numbers", elf], "assembly")
         # 950 工具可能返回 0 却只输出占位符或解码错误；不能仅依赖退出码。
         manifest["assembly_unavailable_count"] = assembly.count("<not available>")
         manifest["dwarf_error_observed"] = "Error in creating MCRegInfo" in info + line_table
