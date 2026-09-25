@@ -46,13 +46,16 @@ def execute(cmd, output, name, manifest, timeout, required=True):
 def pack_result(output, archive, limit=5_000_000):
     # 保留全部证据；超限时拒绝交付，不静默删日志或采样文件。
     temporary = Path(str(archive) + ".partial")
+    stream = temporary.open("xb")
     try:
-        with zipfile.ZipFile(temporary, "x", zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
+        with stream, zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
             for path in sorted(output.rglob("*")):
                 if path.is_file() and not path.is_symlink():
                     bundle.write(path, "simt_probe/" + path.relative_to(output).as_posix())
         if temporary.stat().st_size >= limit:
             raise RuntimeError(f"ZIP 超过回传上限（必须小于 {limit} 字节），完整结果保留在 {output}")
+        if archive.exists():
+            raise FileExistsError(f"回传包已存在：{archive}")
         temporary.rename(archive)
     finally:
         temporary.unlink(missing_ok=True)
