@@ -20,7 +20,7 @@
 3. 调用 `$ascend-kernel-trace` 调试真实算子，或 `$ascend-micro-benchmark` 验证接口。两个 skill 均要求区分已设计、已实现和已验证。
 4. 按 [运行说明](docs/quickstart.md) 复现已验证实验，再依据 [实施顺序](docs/roadmap.md) 扩展。
 
-950 SIMT：[源码热点探针与实测边界](docs/simt-source-probe.md)、[下一轮重放状态对照与回传](docs/simt-replay-state.md)。
+950 SIMT：[源码热点探针](docs/simt-source-probe.md)、[重放实测与回传](docs/simt-replay-state.md)、[真实目标构建核查](docs/simt-target-preflight.md)。
 
 ## Skill 安装
 
