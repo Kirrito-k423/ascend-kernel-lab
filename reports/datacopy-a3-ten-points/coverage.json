@@ -1,0 +1,147 @@
+{
+  "soc": "Ascend910_9382",
+  "cann": "9.1.0-beta.1",
+  "npu_arch": "dav-2201",
+  "clock_hz": 50000000,
+  "configurations": 184,
+  "payload_configurations": 168,
+  "controls": 16,
+  "launches": 7912,
+  "shape_fields": [
+    "block_bytes",
+    "blocks",
+    "gm_gap_bytes"
+  ],
+  "shape_count": 18,
+  "shapes": [
+    [
+      4,
+      1,
+      0
+    ],
+    [
+      16,
+      1,
+      0
+    ],
+    [
+      28,
+      1,
+      0
+    ],
+    [
+      32,
+      1,
+      0
+    ],
+    [
+      32,
+      16,
+      480
+    ],
+    [
+      36,
+      1,
+      0
+    ],
+    [
+      64,
+      1,
+      0
+    ],
+    [
+      128,
+      1,
+      0
+    ],
+    [
+      256,
+      1,
+      0
+    ],
+    [
+      480,
+      16,
+      32
+    ],
+    [
+      480,
+      31,
+      32
+    ],
+    [
+      512,
+      1,
+      0
+    ],
+    [
+      1024,
+      1,
+      0
+    ],
+    [
+      4096,
+      1,
+      0
+    ],
+    [
+      8192,
+      1,
+      0
+    ],
+    [
+      14336,
+      1,
+      0
+    ],
+    [
+      15872,
+      1,
+      0
+    ],
+    [
+      32768,
+      1,
+      0
+    ]
+  ],
+  "runs": [
+    {
+      "run": "matrix-01",
+      "cases": 148,
+      "launches": 6364,
+      "manifest_sha256": "1af817326ac60eae54427cfd0643cd2d11d083a32e1566716f349429346939b6",
+      "library_sha256": "29eb7c6cfdb083299c433bb55f53694f92dad20b97ee362767bf8bd01445d218"
+    },
+    {
+      "run": "followup-01",
+      "cases": 36,
+      "launches": 1548,
+      "manifest_sha256": "a38b34086c0dfdb4cc0452e6b56c77b7961e905251eba259831e018ed941b102",
+      "library_sha256": "29eb7c6cfdb083299c433bb55f53694f92dad20b97ee362767bf8bd01445d218"
+    }
+  ],
+  "selected_bytes": [
+    32,
+    64,
+    128,
+    256,
+    512,
+    1024,
+    4096,
+    8192,
+    14336,
+    32768
+  ],
+  "conditions": {
+    "api": "DataCopy_params",
+    "dtype": "uint32",
+    "aiv_count": 1,
+    "loops": 128,
+    "batch": 1,
+    "slots": 1,
+    "memory_scope": "local_GM",
+    "cache": "small reused working set; coldness unverified"
+  },
+  "note": "existing NPU samples, not a new device run; includes loop/address/sync overhead; no subtraction"
+}
