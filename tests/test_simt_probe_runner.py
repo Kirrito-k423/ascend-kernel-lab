@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tarfile
+import zipfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -61,8 +61,20 @@ class ProbeRunnerTests(unittest.TestCase):
                 expected = "captured_pending_review" if scenario == "capture" else "failed"
                 self.assertEqual(result["status"], expected)
                 self.assertEqual(calls.count("profile"), int(scenario not in ("bad-baseline", "unsupported")))
-                with tarfile.open(str(output) + ".tar.gz") as bundle:
-                    self.assertIn("simt_probe/manifest.json", bundle.getnames())
+                with zipfile.ZipFile(str(output) + ".zip") as bundle:
+                    self.assertIn("simt_probe/manifest.json", bundle.namelist())
+
+    def test_zip_limit_preserves_raw_results(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "result"
+            output.mkdir()
+            (output / "log").write_text("evidence")
+            archive = Path(folder) / "result.zip"
+            with self.assertRaises(RuntimeError):
+                probe.pack_result(output, archive, limit=1)
+            self.assertFalse(archive.exists())
+            self.assertFalse(Path(str(archive) + ".partial").exists())
+            self.assertEqual((output / "log").read_text(), "evidence")
 
     def test_invalid_replay_controls_do_not_start_commands(self):
         for flags in (["--host-launches", "2"], ["--replay-mode", "application"],
@@ -130,8 +142,8 @@ class ProbeRunnerTests(unittest.TestCase):
                 self.assertEqual(calls.count("profile"), int(scenario not in ("plain", "bad-baseline")))
                 if scenario == "extra":
                     self.assertEqual(result["state_observations"]["profile"]["records"][0]["counts"], [21] * 32)
-                with tarfile.open(str(output) + ".tar.gz") as bundle:
-                    self.assertEqual(json.load(bundle.extractfile("simt_probe/manifest.json")), result)
+                with zipfile.ZipFile(str(output) + ".zip") as bundle:
+                    self.assertEqual(json.loads(bundle.read("simt_probe/manifest.json")), result)
 
 
 if __name__ == "__main__":
