@@ -56,7 +56,7 @@ public:
         if (data_ && aclrtSynchronizeStream(stream_) == ACL_SUCCESS) aclrtFree(data_);
     }
     uint8_t* Data() const { return static_cast<uint8_t*>(data_); }
-    void Export(const std::filesystem::path& root, uint32_t rank) {
+    std::filesystem::path Export(const std::filesystem::path& root, uint32_t rank, bool allowRetention = true) {
         Check(aclrtSynchronizeStream(stream_));
         // ACL 页锁定内存避免普通 vector 的 pageable D2H 暂存拷贝；异常路径也释放。
         void* host = nullptr;
@@ -97,8 +97,9 @@ public:
             ",\"device\":" + std::to_string(device_) + ",\"alignment\":\"unverified\"}";
         Write(folder / "capture.json", metadata.data(), metadata.size());
         const char* keepLast = std::getenv("AKL_TRACE_KEEP_LAST");
-        if (valid && kept && (!keepLast || std::strcmp(keepLast, "0") != 0))
+        if (allowRetention && valid && kept && (!keepLast || std::strcmp(keepLast, "0") != 0))
             detail::KeepLastCapture(folder, launch);
+        return folder;
     }
 private:
     static void Check(aclError status) {

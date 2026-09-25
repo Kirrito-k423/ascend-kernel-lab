@@ -14,3 +14,16 @@ target_link_options(akl_kernels PRIVATE --cce-fatobj-link)
 target_link_directories(akl_kernels PRIVATE "${CANN}/lib64")
 target_link_libraries(akl_kernels PRIVATE ascendcl runtime)
 set_target_properties(akl_kernels PROPERTIES BUILD_RPATH "${CANN}/lib64")
+
+# DataCopy 性能基线使用独立 ABI/动态库，旧 micro 入口保持兼容。
+add_library(akl_datacopy SHARED kernels/datacopy.cpp)
+target_include_directories(akl_datacopy PRIVATE include "${CANN}/include")
+target_compile_options(akl_datacopy PRIVATE -O2 -fPIC -xasc "--npu-arch=${AKL_NPU_ARCH}")
+target_link_options(akl_datacopy PRIVATE --cce-fatobj-link)
+target_link_directories(akl_datacopy PRIVATE "${CANN}/lib64")
+target_link_libraries(akl_datacopy PRIVATE ascendcl runtime)
+set_target_properties(akl_datacopy PROPERTIES BUILD_RPATH "${CANN}/lib64")
+find_program(AKL_HOST_PYTHON python3 REQUIRED)
+add_custom_command(TARGET akl_datacopy POST_BUILD
+    COMMAND "${AKL_HOST_PYTHON}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/copy_build_receipt.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:akl_datacopy>" "${AKL_NPU_ARCH}" "${CANN}")
