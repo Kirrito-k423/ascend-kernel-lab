@@ -107,7 +107,7 @@ class ProbeRunnerTests(unittest.TestCase):
                         self.assertEqual([str(x) for x in cmd[-2:]], [str(launches), "1"])
                         log = ""
                         for pid in range(100, 102 if mode == "application" and name == "profile" else 101):
-                            count = 21 if (scenario == "extra" and name == "profile") or \
+                            count = 24 if (scenario == "extra" and name == "profile") or \
                                 (scenario == "bad-baseline" and name == "baseline") else launches
                             row = {"pid": pid, "expected": launches, "counts": [count] * 32}
                             log += f"AKL_APP_START pid={pid}\nAKL_STATE {json.dumps(row)}\n"
@@ -141,7 +141,7 @@ class ProbeRunnerTests(unittest.TestCase):
                 self.assertEqual(result["status"], expected if success else "failed")
                 self.assertEqual(calls.count("profile"), int(scenario not in ("plain", "bad-baseline")))
                 if scenario == "extra":
-                    self.assertEqual(result["state_observations"]["profile"]["records"][0]["counts"], [21] * 32)
+                    self.assertEqual(result["state_observations"]["profile"]["records"][0]["counts"], [24] * 32)
                 with zipfile.ZipFile(str(output) + ".zip") as bundle:
                     self.assertEqual(json.loads(bundle.read("simt_probe/manifest.json")), result)
 
