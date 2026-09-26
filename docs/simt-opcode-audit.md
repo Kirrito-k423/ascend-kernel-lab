@@ -44,3 +44,10 @@ JSON 保存输入与编码表哈希、官方提交、PC、原始字节、候选�
 `samples`、`line_time`、`operands` 保持 `null`；静态指令数量不是执行次数、热点或耗时。采集 manifest 仍保留原始失败状态，诊断结果另存，不能把 `classified` 当成整体采样成功。
 
 下一阶段可将这些名称加入源码/PC 视图，但真实耗时仍缺证据。通信 kernel 的 replay 安全性需要独立实验：既有小例子 kernel replay 将状态累计 24 次，application replay 则重启应用；这不证明真实多 rank 通信可安全重放。暂不把该诊断脚本接到通信采样命令，也不据此填写耗时柱状图。
+
+## AIConnector 交接条件
+
+[Relay #5](https://github.com/Kirrito-k423/AIConnector-Relay/issues/5) 已回传并校验，但仅执行 CPU 自检：`npu=false`、`server_task_id=null`，不构成 PR49 或真实通信实测。
+下一次派发需 Windows 本地配置真实 `simplehtmlwatch` 入口，并将环境说明加入 `runner.agent.contextFiles`；单纯在任务正文提到文件不会加载它。
+先由 Windows 本地核对 `environment.target`、`entry`、`repository`、实际 checkout 与固定启动命令；Mac 只发匹配入口和冻结提交，不猜机器或路径。
+`server_status` 可查询不代表具备 SSH 执行工具；`local-smoke` 不能启动 A5。领取、回执和 ZIP 校验也不能代替服务器任务、实际版本、所有 rank 正确性与原始采样证据。
