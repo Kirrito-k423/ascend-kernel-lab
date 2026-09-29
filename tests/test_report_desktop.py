@@ -106,7 +106,7 @@ class Portable(unittest.TestCase):
 
     def test_desktop_drop(self):
         os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-        from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+        from PySide6.QtCore import QEventLoop, QMimeData, QPointF, QTimer, Qt, QUrl
         from PySide6.QtGui import QDropEvent
         from PySide6.QtWidgets import QApplication
         from akl.desktop import ReportWindow
@@ -118,6 +118,13 @@ class Portable(unittest.TestCase):
         window.dropEvent(event)
         self.assertEqual(window.input, self.csv.resolve())
         self.assertTrue(window.start.isEnabled())
+        loop = QEventLoop()
+        window.process.finished.connect(loop.quit)
+        window.run()
+        QTimer.singleShot(30_000, loop.quit)
+        loop.exec()
+        self.assertTrue(window.open_report.isEnabled(), window.status.text())
+        self.assertTrue((window.result/'index.html').is_file())
         window.close()
 
     @unittest.skipUnless(os.environ.get('AKL_APP_EXE'), 'set AKL_APP_EXE to test packaged executable')
