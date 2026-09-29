@@ -73,7 +73,8 @@ def extract(archive, destination, max_bytes=32 * 1024**3):
         seen, selected = set(), []
         for info in infos:
             parts = PurePosixPath(info.filename).parts
-            if (not parts or info.filename.startswith('/') or '\\' in info.filename or
+            if (info.orig_filename != info.filename or not parts or
+                    info.filename.startswith('/') or '\\' in info.filename or
                     any(p in ('.', '..') or ':' in p or p.endswith((' ', '.')) or
                         re.fullmatch(r'(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?', p) for p in parts) or
                     stat.S_ISLNK(info.external_attr >> 16)):
@@ -183,6 +184,10 @@ def convert(input_path, output, jobs=4, clock_mhz=None, progress=print):
 
 
 def main():
+    import sys
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
     for name in ('pack', 'map', 'render'):
