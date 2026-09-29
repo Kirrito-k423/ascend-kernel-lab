@@ -27,7 +27,7 @@ def event_map(sources):
     token = re.compile(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|[^\s]', re.S)
     mapping = {}
     for source in sources:
-        tokens = [m.group() for m in token.finditer(Path(source).read_text())
+        tokens = [m.group() for m in token.finditer(Path(source).read_text(encoding='utf-8'))
                   if not m.group().startswith(("//", "/*"))]
         for i, name in enumerate(tokens):
             if name not in ("DebugClock", "AKL_DEBUG_CLOCK") or tokens[i-1:i] == ["define"]:
@@ -63,8 +63,30 @@ def event_map(sources):
     return mapping
 
 
+def load_event_map(path):
+    data = json.loads(Path(path).read_text(encoding='utf-8'))
+    if data.get('schema') != 'akl.event-map.v1' or not isinstance(data.get('events'), dict):
+        raise ValueError('未知事件名称映射格式')
+    mapping = {}
+    for key, parts in data['events'].items():
+        if (not isinstance(parts, list) or not parts or
+                any(not isinstance(p, str) or not p or '\0' in p for p in parts) or
+                str(path_hash(parts)) != key):
+            raise ValueError('事件名称与 ID 不匹配')
+        mapping[int(key)] = parts
+    return mapping
+
+
+def event_path(mapping, key):
+    if mapping is None:
+        return [f'event 0x{key:08x} (name unavailable)']
+    if key not in mapping:
+        raise ValueError(f'事件映射不匹配：0x{key:08x}；请使用采集时的 event_map.json')
+    return mapping[key]
+
+
 def decode_capture(folder, mapping):
-    meta = json.loads((folder / "capture.json").read_text())
+    meta = json.loads((folder / "capture.json").read_text(encoding='utf-8'))
     if meta.get("schema") != "akl.semantic.v1" or meta.get("alignment") != "unverified":
         raise ValueError("未知采集协议或时钟对齐状态")
     capacity, blocks = meta["capacity"], meta["blocks"]
@@ -77,6 +99,8 @@ def decode_capture(folder, mapping):
     if len(raw) != blocks * words * 8:
         raise ValueError("记录区长度不匹配")
     events, warnings = [], []
+    if mapping is None:
+        warnings.append('缺少事件名称映射，仅显示原始 event ID；耗时仍按原始 cycle 计算')
     for block, row in enumerate(struct.iter_unpack(f"<{words}Q", raw)):
         if row[:2] != (MAGIC, 1) or row[7] != 1 or row[4] != block or row[2] > capacity:
             raise ValueError(f"block {block} 未提交或 ABI 损坏")
@@ -85,12 +109,12 @@ def decode_capture(folder, mapping):
         previous, occurrences = -1, Counter()
         for seq in range(row[2]):
             key, tick = row[8+2*seq:10+2*seq]
-            if key not in mapping or tick < previous:
-                raise ValueError("事件映射不匹配或同核 cycle 回退")
+            if tick < previous:
+                raise ValueError("同核 cycle 回退")
             previous = tick
             occurrences[key] += 1
             events.append(dict(block=block, subblock=row[5], sequence=seq, event_id=key,
-                               occurrence=occurrences[key], tick=str(tick), path=mapping[key]))
+                               occurrence=occurrences[key], tick=str(tick), path=event_path(mapping, key)))
     if not events:
         raise ValueError("没有已提交事件")
     return meta, events, warnings
@@ -238,14 +262,14 @@ def render(folder, meta, events, warnings, clock_mhz=None, cycle_range=None,
 <details id="events-detail"><summary>原始绝对 cycle（所选 block，整数）</summary>
 <table><thead><tr><th>block/subblock</th><th>序号</th><th>该点第几次</th><th>cycle</th><th>语义路径</th></tr></thead><tbody id="events-body"></tbody></table></details>
 <script id="lane-data" type="application/json">{payload}</script>
-<script>{Path(__file__).with_name('timeline.js').read_text()}</script></html>'''
-    (folder / "semantic.html").write_text(page)
-    (folder / "semantic.svg").write_text(drawing)
+<script>{Path(__file__).with_name('timeline.js').read_text(encoding='utf-8')}</script></html>'''
+    (folder / "semantic.html").write_text(page, encoding='utf-8')
+    (folder / "semantic.svg").write_text(drawing, encoding='utf-8')
     if intermediates:
         with (folder / "semantic.jsonl").open("w") as out:
             for event in events:
                 out.write(json.dumps(dict(meta, launch_id=folder.name, **event), ensure_ascii=False) + "\n")
-        (folder / "counts.json").write_text(json.dumps(dict(counts=summary, warnings=warnings), indent=2))
+        (folder / "counts.json").write_text(json.dumps(dict(counts=summary, warnings=warnings), indent=2), encoding='utf-8')
     with trace_file(folder / 'trace.json') as emit:
         write_capture(emit, capture_id or folder.name, trace_pid, meta, events, warnings, clock_mhz)
 
@@ -274,7 +298,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("capture", type=Path, help="单次采集目录，或含多个 rank*-pid*-launch* 的父目录")
     parser.add_argument("--output", type=Path, help="批量汇总目录，默认 <父目录>/result")
-    parser.add_argument("--source", type=Path, nargs="+", required=True, help="编译所用的语义打点源码")
+    names = parser.add_mutually_exclusive_group()
+    names.add_argument("--source", type=Path, nargs="+", help="兼容旧采集：编译所用的语义打点源码")
+    names.add_argument("--event-map", type=Path, help="采集时导出的事件名称映射；默认读取输入目录的 event_map.json")
     parser.add_argument("--clock-mhz", type=float, help="用户确认的 cycle 时钟频率（MHz），用于 µs 刻度")
     parser.add_argument("--cycle-range", type=int, nargs=2, metavar=("START", "END"),
                         help="相对共同 origin 的 cycle 窗口；HTML 初始视图和 SVG 导出范围")
@@ -285,11 +311,13 @@ def main():
     args = parser.parse_args()
     if args.jobs <= 0:
         parser.error("--jobs 必须是正整数")
-    mapping = event_map(args.source)
+    map_file = args.event_map or args.capture / 'event_map.json'
+    mapping = (event_map(args.source) if args.source else
+               load_event_map(map_file) if map_file.is_file() or args.event_map else None)
     if not (args.capture / "capture.json").is_file():
         from .batch import export_batch
         failed = export_batch(args.capture, args.output or args.capture / "result", mapping,
-                              args.source, args.clock_mhz, args.cycle_range,
+                              args.source or [], args.clock_mhz, args.cycle_range,
                               args.jobs, args.keep_intermediates, args.zip_launches, args.last_launch)
         raise SystemExit(1 if failed else 0)
     if args.output:

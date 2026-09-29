@@ -206,7 +206,7 @@ def find_latency_csv(input_dir: Path, file_name: str) -> Path:
 def load_latency_rows(csv_path: Path) -> List[dict]:
     required_columns = {"rank", "iteration", "elapsed_us"}
     rows: List[dict] = []
-    with csv_path.open("r", newline="", encoding="utf-8") as stream:
+    with csv_path.open("r", newline="", encoding="utf-8-sig") as stream:
         reader = csv.DictReader(stream)
         fieldnames = set(reader.fieldnames or [])
         missing = required_columns - fieldnames

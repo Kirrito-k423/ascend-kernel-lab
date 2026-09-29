@@ -14,7 +14,7 @@ from collections import defaultdict
 from pathlib import Path
 from urllib.parse import quote
 
-from .semantic import capture_signature, clean_capture, decode_capture, render
+from .semantic import capture_signature, clean_capture, decode_capture, event_path, render
 from .chrome_trace import merge_traces
 
 SCHEMA = 'akl.semantic.batch.v1'
@@ -26,13 +26,13 @@ def discover(root, output):
         raise ValueError('输入须为父目录；汇总目录不能覆盖输入目录或其祖先')
     if output.exists():
         manifest = output / 'summary.json'
-        if not manifest.is_file() or json.loads(manifest.read_text()).get('schema') != SCHEMA:
+        if not manifest.is_file() or json.loads(manifest.read_text(encoding='utf-8')).get('schema') != SCHEMA:
             raise ValueError('汇总目录已存在且不是本工具生成的报告，请更换 --output')
     captures = []
     for parent, dirs, _ in os.walk(root):
         manifest = Path(parent)/'summary.json'
         try:
-            if manifest.is_file() and json.loads(manifest.read_text()).get('schema') == SCHEMA:
+            if manifest.is_file() and json.loads(manifest.read_text(encoding='utf-8')).get('schema') == SCHEMA:
                 dirs.clear()  # 更换 --output 后，仍不递归分析旧报告里的原始数据副本。
                 continue
         except (OSError, ValueError):
@@ -98,16 +98,16 @@ def export_capture(task, root, stage, mapping, clock_mhz, cycle_range, keep_inte
 
 def export_group(output, runs, totals, mapping, clock_mhz, cycle_range, zip_launches):
     output.mkdir(parents=True, exist_ok=True)
-    stats = [dict(rank=rank, event_id=key, path=mapping[key], **{
+    stats = [dict(rank=rank, event_id=key, path=event_path(mapping, key), **{
         k: str(v) if v is not None else None for k, v in stat.items()})
         for (rank, key), stat in sorted(totals.items())]
     report = dict(schema=SCHEMA, launch=runs[0]['launch'], clock_mhz=clock_mhz,
                   cycle_range=cycle_range, runs=runs, stats=stats)
-    (output/'summary.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    (output/'summary.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     data = json.dumps(report, ensure_ascii=False).replace('<', '\\u003c')
-    page = Path(__file__).with_name('batch.html').read_text().replace('<!--REPORT-->', data)
+    page = Path(__file__).with_name('batch.html').read_text(encoding='utf-8').replace('<!--REPORT-->', data)
     page = page.replace('<!--ZIP-->', '<a href="result.zip" download>下载本 launch ZIP</a>' if zip_launches else '')
-    (output/'index.html').write_text(page)
+    (output/'index.html').write_text(page, encoding='utf-8')
     merge_traces((output/'runs'/Path(run['id']).name/'trace.json' for run in runs if run['status']=='ok'),
                  output/'trace.json')
     if zip_launches:
@@ -136,7 +136,7 @@ def export_batch(root, output, mapping, sources, clock_mhz=None, cycle_range=Non
         # 被跳过的旧轮次不解码；记录文件身份，仅在最终报告成功后清理。
         for folder, ids in all_captures:
             if folder not in selected:
-                meta = json.loads((folder/'capture.json').read_text())
+                meta = json.loads((folder/'capture.json').read_text(encoding='utf-8'))
                 if meta.get('schema') != 'akl.semantic.v1' or meta.get('rank') != ids[0]:
                     raise ValueError(f'{folder}: 旧采集协议/rank 不匹配，保留输入')
                 skipped.append((folder, capture_signature(folder)))
@@ -179,7 +179,7 @@ def export_batch(root, output, mapping, sources, clock_mhz=None, cycle_range=Non
         report = dict(schema=SCHEMA, kind='launch-index', launches=launches, jobs=workers,
                       keep_intermediates=keep_intermediates, zip_launches=zip_launches, last_launch=last_launch,
                       skipped_captures=len(skipped))
-        (stage/'summary.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+        (stage/'summary.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         rows = []
         for entry in launches:
             link = html.escape(entry['directory'], quote=True)
@@ -198,7 +198,7 @@ def export_batch(root, output, mapping, sources, clock_mhz=None, cycle_range=Non
             '重新解析须事先使用 --keep-intermediates 保留原始数据。'
             '<a href="summary.json" download>索引 JSON</a></p>'
             '<table><thead><tr><th>实验目录</th><th>Launch</th><th>Rank 数</th><th>采集数</th><th>失败数</th>'
-            '<th>查看 / 下载</th><th>提示</th></tr></thead><tbody>'+''.join(rows)+'</tbody></table></html>')
+            '<th>查看 / 下载</th><th>提示</th></tr></thead><tbody>'+''.join(rows)+'</tbody></table></html>', encoding='utf-8')
         backup = Path(temporary)/'previous'
         if output.exists():
             output.rename(backup)
