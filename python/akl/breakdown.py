@@ -99,6 +99,6 @@ def render_breakdown(folder, meta, events, warnings, clock_mhz):
                 fig.clear()
     data = dict(rank=meta['rank'], panels=[dict(p, totals=[str(v) for v in p['totals']]) for p in panels],
                 paths=[' / '.join(p) for p in paths], factor=factor, unit=unit)
-    template = Path(__file__).with_name('breakdown.html').read_text()
+    template = Path(__file__).with_name('breakdown.html').read_text(encoding='utf-8')
     return template.replace('<!--DATA-->', json.dumps(data, ensure_ascii=False).replace('<', '\\u003c')).replace(
         '<!--WARNINGS-->', html.escape('；'.join(warnings) or '无记录丢弃'))

@@ -1,0 +1,39 @@
+name: Desktop app
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/report-desktop']
+  pull_request:
+    paths: ['python/akl/**', 'desktop/**', '.github/workflows/desktop.yml', 'requirements.txt']
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-14, label: mac-arm64}
+          - {os: windows-latest, label: windows-x64}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r desktop/requirements.txt
+      - run: python -m PyInstaller --noconfirm desktop/AKL-Report.spec
+        env:
+          PYTHONPATH: python
+      - name: Package
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            ditto -c -k --sequesterRsrc --keepParent "dist/AKL Report.app" dist/AKL-Report-${{ matrix.label }}.zip
+          else
+            python -c "import shutil; shutil.make_archive('dist/AKL-Report-${{ matrix.label }}', 'zip', 'dist/AKL-Report')"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AKL-Report-${{ matrix.label }}
+          path: dist/AKL-Report-${{ matrix.label }}.zip
