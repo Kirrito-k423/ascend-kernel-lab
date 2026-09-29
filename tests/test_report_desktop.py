@@ -87,7 +87,9 @@ class Portable(unittest.TestCase):
             with self.subTest(name=name):
                 archive = self.root/'bad.zip'
                 with zipfile.ZipFile(archive, 'w') as z:
-                    z.writestr(name, b'bad')
+                    info = zipfile.ZipInfo()
+                    info.filename = name  # 绕过 Windows 写入器的自动斜杠替换，模拟真实原始 ZIP。
+                    z.writestr(info, b'bad')
                 with self.assertRaises(ValueError):
                     extract(archive, self.root)
         info = zipfile.ZipInfo('trace.bin')

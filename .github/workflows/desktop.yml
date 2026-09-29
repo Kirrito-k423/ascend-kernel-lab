@@ -30,6 +30,7 @@ jobs:
         env:
           PYTHONPATH: python
           QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
         run: |
           if [[ "$RUNNER_OS" == macOS ]]; then
             export AKL_APP_EXE="$PWD/dist/AKL Report.app/Contents/MacOS/AKL-Report"
