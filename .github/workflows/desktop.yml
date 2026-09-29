@@ -2,9 +2,9 @@ name: Desktop app
 on:
   workflow_dispatch:
   push:
-    branches: ['codex/report-desktop']
+    branches: ['codex/report-desktop*']
   pull_request:
-    paths: ['python/akl/**', 'desktop/**', '.github/workflows/desktop.yml', 'requirements.txt']
+    paths: ['python/akl/**', 'desktop/**', 'tests/test_report_desktop.py', '.github/workflows/desktop.yml', 'requirements.txt']
 permissions:
   contents: read
 jobs:
@@ -25,6 +25,19 @@ jobs:
       - run: python -m PyInstaller --noconfirm desktop/AKL-Report.spec
         env:
           PYTHONPATH: python
+      - name: Test packaged app with synthetic trace and latency
+        shell: bash
+        env:
+          PYTHONPATH: python
+          QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            export AKL_APP_EXE="$PWD/dist/AKL Report.app/Contents/MacOS/AKL-Report"
+          else
+            export AKL_APP_EXE="$PWD/dist/AKL-Report/AKL-Report.exe"
+          fi
+          python -m unittest discover -s tests -p test_report_desktop.py -v
       - name: Package
         shell: bash
         run: |
