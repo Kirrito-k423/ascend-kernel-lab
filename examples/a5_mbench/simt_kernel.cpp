@@ -103,9 +103,9 @@ extern "C" __global__ __aicore__ void arithmetic_kernel(
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
     TBuf<TPosition::VECCALC> valuesBuf, rhsBuf, timerBuf;
+    pipe.InitBuffer(timerBuf, 32);
     pipe.InitBuffer(valuesBuf, n * sizeof(float));
     pipe.InitBuffer(rhsBuf, n * sizeof(float));
-    pipe.InitBuffer(timerBuf, 32);
     auto values = valuesBuf.Get<float>();
     auto rhs = rhsBuf.Get<float>();
     auto time = timerBuf.Get<uint64_t>();
