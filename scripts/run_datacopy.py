@@ -84,6 +84,16 @@ def execute(args):
         for case in cases:
             p = case.params()
             if case.layout()['ub_working_set_bytes'] + WORDS*8 > hardware['ub_bytes']: raise ValueError('实际 UB 不足')
+        shared = None
+        if args.reuse_buffers:
+            capacities = [0, 32, 0, WORDS * 8, 64]
+            for case in cases:
+                x, y, _, _ = make_buffers(case)
+                capacities[0] = max(capacities[0], x.nbytes)
+                capacities[2] = max(capacities[2], y.nbytes)
+            shared = [rt.alloc(size) for size in capacities]
+            manifest['fixed_buffers'] = dict(reused_across_cases=True, capacities_bytes=capacities,
+                scope='same live GM allocations within this run; no device address exported')
         for case in cases:
             p = case.params()
             folder = out/case.name
@@ -96,7 +106,7 @@ def execute(args):
             raw = np.zeros((1, WORDS), dtype=np.uint64)
             config = np.frombuffer(case.pack(), dtype=np.uint32).copy()
             arrays = (x, dummy, y, raw, config)
-            buffers = [rt.alloc(a.nbytes) for a in arrays]
+            buffers = shared if shared is not None else [rt.alloc(a.nbytes) for a in arrays]
             for ptr, array in zip(buffers, arrays): rt.upload(ptr, array)
             samples = []
             launches = [(True, True)] * args.warmup
@@ -129,7 +139,7 @@ def execute(args):
                     samples.append(sample)
                     save(folder/'samples.json', samples)
             record.update(status='validated', launches=len(samples), expected_retained=retained)
-            rt.free_buffers()
+            if shared is None: rt.free_buffers()
             save(out/'manifest.json', manifest)
             print(f'通过 {case.name}: {len(samples)} launches', flush=True)
         rt.close()
@@ -161,6 +171,7 @@ def main():
     parser.add_argument('--warmup', type=int, default=3)
     parser.add_argument('--samples', type=int, default=20)
     parser.add_argument('--seed', type=int, default=20260923)
+    parser.add_argument('--reuse-buffers', action='store_true', help='各 case 复用同一组最大容量 GM 缓冲，用于控制地址分配变量')
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
     if args.warmup < 0 or args.samples < 1 or args.device < 0: parser.error('采样/设备参数非法')
