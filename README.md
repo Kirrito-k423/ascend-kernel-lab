@@ -10,6 +10,8 @@
 
 新增 [A5 对齐与 SIMT 实测](examples/a5_mbench/README.md)：CANN 9.1.0、单 AIV、本地 GM。两轮共 4640 个配置轮次、60264 个计时样本，通过输出、原始计时、构建和占用证据校验；[交互网站](https://kirrito-k423.github.io/micro-benchmark-lab-web/?lab=alignment) 提供曲线、表格、原始样本与 PNG/SVG。
 
+新增 [A5 SIMD / REG 同工作量对照](examples/a5_simd_mbench/README.md)：15 个 shape，Tensor API、REG 1/4 组与 SIMT 五档线程；1588 配置 × 两轮、47640 计时样本，完整输出和边界验证通过。[交互曲线](https://kirrito-k423.github.io/micro-benchmark-lab-web/?lab=simd) 同时保留一次批量与长依赖链、空对照和原始样本。
+
 | 能力 | 目标 | 入口 |
 | --- | --- | --- |
 | Kernel Trace | 独立打点、原始时间戳、核间起点差异、阶段耗时、图片与时间线 | [设计](docs/trace-design.md)、[skill](skills/ascend-kernel-trace/SKILL.md) |
