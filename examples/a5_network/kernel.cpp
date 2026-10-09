@@ -4,6 +4,7 @@ using namespace AscendC;
 extern "C" __global__ __aicore__ void network_kernel(GM_ADDR src,GM_ADDR dst,GM_ADDR records,
     uint32_t engine,uint32_t get,uint32_t partBytes,uint32_t slots,uint32_t operations,
     uint32_t batch,uint32_t qps,uint32_t control) {
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe; TBuf<TPosition::VECCALC> dataBuf,timeBuf;
     // 显式分配 scratch；不使用 SHMEM 隐含 UB 偏移。
     pipe.InitBuffer(dataBuf,32768);pipe.InitBuffer(timeBuf,32);
