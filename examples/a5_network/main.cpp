@@ -96,7 +96,8 @@ int main(int argc,char** argv){
         uint32_t maxQps=1;auto cases=Plan(argv[5],maxCores,engine,maxQps);uint64_t maxRing=0;
         for(auto c:cases)maxRing=std::max(maxRing,c.ring);
         size_t freeBytes=0,totalBytes=0;AC(aclrtGetMemInfo(ACL_HBM_MEM,&freeBytes,&totalBytes));
-        const uint64_t heap=Ceil(2*(maxRing+256)+(32ull<<20),1ull<<20);
+        // 使用 SDK 的页粒度对齐对称堆，避免将固定 1MiB 当成所有后端的合法粒度。
+        const uint64_t heap=Ceil(2*(maxRing+256)+(32ull<<20),ACLSHMEM_PAGE_SIZE);
         if(heap>freeBytes/2)throw std::runtime_error("GM 空闲不足");
         Coord coord;coord.Open(rank,argv[3]);
         auto transport=engine==0?ACLSHMEM_DATA_OP_MTE:ACLSHMEM_DATA_OP_UDMA;

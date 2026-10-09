@@ -34,7 +34,7 @@ def main():
     # 可执行文件的 RUNPATH 不传递给间接依赖；显式选择完整的同版本 SHMEM 库目录。
     env=dict(os.environ,SHMEM_UID_SESSION_ID=a.session,
         LD_LIBRARY_PATH=str(a.library_dir)+':'+os.environ.get('LD_LIBRARY_PATH',''))
-    libraries={f.name:sha(f) for f in sorted(a.library_dir.glob('libshmem*.so*')) if f.is_file()}
+    libraries={f.name:sha(f) for f in sorted(a.library_dir.glob('*.so*')) if f.is_file()}
     ranks=[0,1] if a.rank is None else [a.rank];procs=[];files=[]
     manifest=dict(schema='akl.network.run.v1',status='incomplete',session=a.session,
         placement=a.placement,engine=a.engine,ranks=ranks,devices=a.devices,warmup=a.warmup,samples=a.samples,

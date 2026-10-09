@@ -8,7 +8,7 @@ p.add_argument('--sdk',type=Path,required=True);p.add_argument('--output',type=P
 a=p.parse_args();root=Path(__file__).resolve().parent
 files={f'src/{name}':root/name for name in ['main.cpp','kernel.cpp','CMakeLists.txt','run_pair.py','plan.py','import_results.py','make_receipt.py']}
 files['build/akl_network']=a.binary
-for path in sorted(a.lib.parent.glob('libshmem*.so*')):
+for path in sorted(a.lib.parent.glob('*.so*')):
  if path.is_file():files['lib/'+path.name]=path
 for part in ['include','src/device','src/device_simt','src/host_device']:
  for path in sorted((a.sdk/part).rglob('*')):
