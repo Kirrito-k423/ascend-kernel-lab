@@ -84,11 +84,14 @@ static uint32_t Pattern(int rank,uint64_t index,uint32_t stamp){
 }
 int main(int argc,char** argv){
     try{
-        if(argc!=9 && argc!=10)throw std::runtime_error("用法: DEVICE RANK tcp://IP:PORT mte|urma PLAN WARMUP SAMPLES OUTPUT [sdk|cq-grouped]");
+        if(argc<9 || argc>11)throw std::runtime_error("用法: DEVICE RANK tcp://IP:PORT mte|urma PLAN WARMUP SAMPLES OUTPUT [sdk|cq-grouped] [CONFIGURED_QPS_OR_0]");
         const int device=std::stoi(argv[1]),rank=std::stoi(argv[2]);
         const int engine=std::string(argv[4])=="mte"?0:std::string(argv[4])=="urma"?1:-1;
         const int warmup=std::stoi(argv[6]),samples=std::stoi(argv[7]);
-        const std::string completion=argc==10?argv[9]:"sdk";
+        const std::string completion=argc>=10?argv[9]:"sdk";
+        const int configuredQps=argc==11?std::stoi(argv[10]):0;
+        if(configuredQps<0 || configuredQps>8 || (engine==0 && configuredQps>1))
+            throw std::runtime_error("配置 QP 数非法");
         if((completion!="sdk" && completion!="cq-grouped") || (engine==0 && completion!="sdk"))
             throw std::runtime_error("完成方式与后端不符");
         if(rank<0||rank>1||engine<0||warmup<0||samples<1)throw std::runtime_error("参数错误");
@@ -97,6 +100,8 @@ int main(int argc,char** argv){
         const char* soc=aclrtGetSocName();
         if(!soc||std::string(soc).find("950")==std::string::npos||maxCores<=0)throw std::runtime_error("仅已适配 Ascend950");
         uint32_t maxQps=1;auto cases=Plan(argv[5],maxCores,engine,maxQps);uint64_t maxRing=0;
+        // 拆成短任务时仍可固定相同的实际 QP/CQ 布局，避免 chunk 改变测量条件。
+        if(configuredQps){if(uint32_t(configuredQps)<maxQps)throw std::runtime_error("配置 QP 少于计划使用数");maxQps=configuredQps;}
         for(auto c:cases)maxRing=std::max(maxRing,c.ring);
         size_t freeBytes=0,totalBytes=0;AC(aclrtGetMemInfo(ACL_HBM_MEM,&freeBytes,&totalBytes));
         // 使用 SDK 的页粒度对齐对称堆，避免将固定 1MiB 当成所有后端的合法粒度。

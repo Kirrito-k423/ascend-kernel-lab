@@ -3,10 +3,13 @@
 
 // 必要的基准适配：多个 SQ 可能共享同一实际 CQ；按 QP 分别消费会误收其他 SQ 的完成。
 // 仅用于此基准的单 AIV 独占 peer、独立 GET/PUT WQE；不修改 SDK，也不支持多 AIV 并发消费。
+// SDK 内部 CQ 类型只在设备编译阶段可见；Host 阶段跳过这个设备签名。
+#if defined(__NPU_ARCH__) && (__NPU_ARCH__ == 3510)
 ACLSHMEM_DEVICE bool AklSameCq(__gm__ aclshmemi_udma_cq_ctx_t* a,
     __gm__ aclshmemi_udma_cq_ctx_t* b) {
     return a->cqn==b->cqn && a->buf_addr==b->buf_addr && a->db_addr==b->db_addr;
 }
+#endif
 ACLSHMEM_DEVICE uint32_t AklQuiet(uint32_t peer,uint32_t qp,bool grouped) {
     static_assert(!ACLSHMEM_RELAY_SUPPORTED,"QP benchmark requires direct UDMA");
     auto info=aclshmemi_udma_qp_info_fetch();auto table=aclshmemi_udma_active_table(info);

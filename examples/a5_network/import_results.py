@@ -26,7 +26,7 @@ def analyse(runs,fingerprints):
                 'SHMEM 完整动态库与构建凭据不一致')
         require(sha(path/'plan.csv')==m['plan_sha256'],'plan 哈希不一致')
         key=m['session'];pair=pairs.setdefault(key,{'metadata':m,'raw':{},'plan':(path/'plan.csv').read_text()})
-        require(all(pair['metadata'][k]==m[k] for k in ['binary_sha256','plan_sha256','engine','completion_impl','placement','warmup','samples','topology_evidence_sha256','shmem_library_sha256']),
+        require(all(pair['metadata'][k]==m[k] for k in ['binary_sha256','plan_sha256','engine','completion_impl','configured_qps_request','placement','warmup','samples','topology_evidence_sha256','shmem_library_sha256']),
                 '同一 session 两端配置不一致')
         if m['placement'] in ['same_cabinet','cross_cabinet']:
             topo=path/'topology-evidence.json'
@@ -51,6 +51,8 @@ def analyse(runs,fingerprints):
                 vals=[int(v) for v in line.split(',')];require(len(vals)==9,'计划格式错误')
                 require(vals[0] not in plan,'计划 id 重复');plan[vals[0]]=vals
         expected={(cid,s) for cid in plan for s in range(-m['warmup'],m['samples'])}
+        configured=m['configured_qps_request'] or max(v[5] for v in plan.values())
+        require(1<=configured<=8 and configured>=max(v[5] for v in plan.values()),'配置 QP 数非法')
         indexed=[]
         for rank in [0,1]:
             d={(r['case_id'],r['sample']):r for r in pair['raw'][rank]}
@@ -69,6 +71,7 @@ def analyse(runs,fingerprints):
                         '实际参数与计划不同')
                 require(a['engine']==m['engine'] and a['operation']==('get' if get else 'put'),'接口/方向不符')
                 require(a['completion_impl']==m['completion_impl'],'实际完成方式与 manifest 不符')
+                require(a['configured_qps']==configured,'实际配置 QP 与请求/计划不符')
                 require(a['event_ms']>0 and b['event_ms']==0 and not b['ticks'],'无发起方有效完成计时')
                 require(len(a['ticks'])==cores*4,'核记录数量错误')
                 for k in range(cores):
