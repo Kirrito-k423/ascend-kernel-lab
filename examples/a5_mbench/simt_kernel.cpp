@@ -30,6 +30,34 @@ __aicore__ inline void VectorComplete() {
     WaitFlag<HardEvent::V_S>(EVENT_ID0);
 }
 
+template<int Op>
+__aicore__ inline void ScalarWork(LocalTensor<float> values, LocalTensor<float> rhs,
+                                uint32_t n, uint32_t steps) {
+    for (uint32_t i = 0; i < n; ++i) {
+        float v = values.GetValue(i), operand = rhs.GetValue(i);
+        for (uint32_t j = 0; j < steps; ++j) {
+            if constexpr (Op == 0) v += operand;
+            else if constexpr (Op == 1) v -= operand;
+            else if constexpr (Op == 2) v *= operand;
+            else v /= operand;
+        }
+        values.SetValue(i, v);
+    }
+}
+
+template<int Op>
+__aicore__ inline void SIMDWork(LocalTensor<float> values, LocalTensor<float> rhs,
+                              uint32_t n, uint32_t steps) {
+    for (uint32_t j = 0; j < steps; ++j) {
+        if constexpr (Op == 0) Add(values, values, rhs, n);
+        else if constexpr (Op == 1) Sub(values, values, rhs, n);
+        else if constexpr (Op == 2) Mul(values, values, rhs, n);
+        else Div(values, values, rhs, n);
+        PipeBarrier<PIPE_V>();
+    }
+    VectorComplete();
+}
+
 template<int Threads, int Op>
 __aicore__ inline void Invoke(LocalTensor<float> values, LocalTensor<float> rhs,
                              uint32_t n, uint32_t steps) {
@@ -93,26 +121,19 @@ extern "C" __global__ __aicore__ void arithmetic_kernel(
     SetFlag<HardEvent::MTE2_S>(EVENT_ID0); WaitFlag<HardEvent::MTE2_S>(EVENT_ID0);
     const uint64_t start = GetSystemCycle();
     if (impl == 0) {
-        // 单 AIV Scalar，输入输出均在 UB；链中每步使用 FP32 值。
-        for (uint32_t i = 0; i < n; ++i) {
-            float v = values.GetValue(i), operand = rhs.GetValue(i);
-            for (uint32_t j = 0; j < steps; ++j) {
-                if (op == 0) v += operand;
-                else if (op == 1) v -= operand;
-                else if (op == 2) v *= operand;
-                else v /= operand;
-            }
-            values.SetValue(i, v);
+        switch (op) {
+            case 0: ScalarWork<0>(values, rhs, n, steps); break;
+            case 1: ScalarWork<1>(values, rhs, n, steps); break;
+            case 2: ScalarWork<2>(values, rhs, n, steps); break;
+            case 3: ScalarWork<3>(values, rhs, n, steps); break;
         }
     } else if (impl == 2) {
-        for (uint32_t j = 0; j < steps; ++j) {
-            if (op == 0) Add(values, values, rhs, n);
-            else if (op == 1) Sub(values, values, rhs, n);
-            else if (op == 2) Mul(values, values, rhs, n);
-            else Div(values, values, rhs, n);
-            PipeBarrier<PIPE_V>();
+        switch (op) {
+            case 0: SIMDWork<0>(values, rhs, n, steps); break;
+            case 1: SIMDWork<1>(values, rhs, n, steps); break;
+            case 2: SIMDWork<2>(values, rhs, n, steps); break;
+            case 3: SIMDWork<3>(values, rhs, n, steps); break;
         }
-        VectorComplete();
     } else {
         switch (threads) {
 #define THREAD_CASE(N) case N: Work<N>(impl, op, values, rhs, n, steps, calls); break

@@ -55,11 +55,17 @@ def main():
                 idle(check,'after')
             else:
                 out.mkdir()
+                build=json.loads((root/'build-simt/akl_simt_arithmetic.build.json').read_text())
+                if build['executable_sha256']!=sha(root/'build-simt/akl_simt_arithmetic'):
+                    raise ValueError('SIMT 可执行文件与构建凭据不一致')
+                for name,hash_ in build['source_sha256'].items():
+                    if sha(root/name)!=hash_:raise ValueError('SIMT 源码已变化，需要重新编译')
                 meta=dict(schema='akl.simt.mbench.v1',status='incomplete',round=a.round,
                           clock_profile=json.loads((root/'results/setup/profile.json').read_text()),
                           executable_sha256=sha(root/'build-simt/akl_simt_arithmetic'),
                           source_sha256={n:sha(root/n) for n in ['examples/a5_mbench/simt_kernel.cpp','examples/a5_mbench/simt_main.cpp','examples/a5_mbench/CMakeLists.txt']},
                           cann_install=(root/'results/setup/cann-install.txt').read_text(),compiler=(root/'results/setup/compiler.txt').read_text())
+                meta['build']=build
                 shutil.copyfile(path,out/'plan.csv')
                 meta['plan_sha256']=sha(out/'plan.csv')
                 save(out/'manifest.json',meta)

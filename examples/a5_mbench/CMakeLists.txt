@@ -12,3 +12,6 @@ target_link_options(akl_simt_arithmetic PRIVATE --cce-fatobj-link)
 target_link_directories(akl_simt_arithmetic PRIVATE "${CANN}/lib64")
 target_link_libraries(akl_simt_arithmetic PRIVATE ascendcl runtime)
 set_target_properties(akl_simt_arithmetic PROPERTIES BUILD_RPATH "${CANN}/lib64")
+add_custom_command(TARGET akl_simt_arithmetic POST_BUILD
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/simt_build_receipt.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../.." "$<TARGET_FILE:akl_simt_arithmetic>" "${CANN}")
