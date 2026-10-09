@@ -32,6 +32,7 @@ def main():
     p.add_argument('--round',type=int,choices=[1,2],required=True)
     p.add_argument('--start',type=int,required=True)
     p.add_argument('--count',type=int,default=4)
+    p.add_argument('--device',type=int,default=0)
     p.add_argument('--output',type=Path,required=True)
     a=p.parse_args()
     a.output.mkdir(parents=True,exist_ok=False)
@@ -39,7 +40,7 @@ def main():
     selected=paths[a.start:a.start+a.count]
     if not selected: raise ValueError('没有对应批次')
     manifest=dict(schema='akl.borrowed.mbench.v1',kind=a.kind,round=a.round,status='incomplete',
-                  started_utc=datetime.now(timezone.utc).isoformat(),chunks=[])
+                  device=a.device,started_utc=datetime.now(timezone.utc).isoformat(),chunks=[])
     save(a.output/'batch.json',manifest)
     try:
         for index,path in enumerate(selected,a.start):
@@ -48,10 +49,10 @@ def main():
                 check=a.output/f'check-{index:03}';check.mkdir()
                 idle(check,'before')
                 command=[sys.executable,str(root/'scripts/run_datacopy.py'),'--profile',str(root/'results/setup/profile.json'),
-                    '--device','0','--library',str(root/'build-a5/libakl_datacopy.so'),'--cases',str(path),
+                    '--device',str(a.device),'--library',str(root/'build-a5/libakl_datacopy.so'),'--cases',str(path),
                     '--warmup','2','--samples','12','--seed',str(20261009+a.round),'--output',str(out)]
                 with (check/'stdout.log').open('w') as stdout,(check/'stderr.log').open('w') as stderr:
-                    subprocess.run(command,check=True,timeout=60,stdout=stdout,stderr=stderr)
+                    subprocess.run(command,check=True,timeout=120,stdout=stdout,stderr=stderr)
                 idle(check,'after')
             else:
                 out.mkdir()
@@ -60,7 +61,7 @@ def main():
                     raise ValueError('SIMT 可执行文件与构建凭据不一致')
                 for name,hash_ in build['source_sha256'].items():
                     if sha(root/name)!=hash_:raise ValueError('SIMT 源码已变化，需要重新编译')
-                meta=dict(schema='akl.simt.mbench.v1',status='incomplete',round=a.round,
+                meta=dict(schema='akl.simt.mbench.v1',status='incomplete',round=a.round,device=a.device,
                           clock_profile=json.loads((root/'results/setup/profile.json').read_text()),
                           executable_sha256=sha(root/'build-simt/akl_simt_arithmetic'),
                           source_sha256={n:sha(root/n) for n in ['examples/a5_mbench/simt_kernel.cpp','examples/a5_mbench/simt_main.cpp','examples/a5_mbench/CMakeLists.txt']},
@@ -70,7 +71,7 @@ def main():
                 meta['plan_sha256']=sha(out/'plan.csv')
                 save(out/'manifest.json',meta)
                 meta['occupancy_before']=idle(out,'before')
-                command=[str(root/'build-simt/akl_simt_arithmetic'),'0',str(path),'2','15',str(out/'samples.jsonl')]
+                command=[str(root/'build-simt/akl_simt_arithmetic'),str(a.device),str(path),'2','15',str(out/'samples.jsonl')]
                 with (out/'stdout.log').open('w') as stdout,(out/'stderr.log').open('w') as stderr:
                     subprocess.run(command,check=True,timeout=60,stdout=stdout,stderr=stderr)
                 meta['occupancy_after']=idle(out,'after')

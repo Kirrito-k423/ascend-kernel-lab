@@ -155,6 +155,9 @@ extern "C" __global__ __aicore__ void arithmetic_kernel(
 
 extern "C" void launch_arithmetic(void* stream, void* x, void* rhs, void* out, void* ticks,
     uint32_t impl, uint32_t op, uint32_t n, uint32_t threads, uint32_t steps, uint32_t calls) {
-    arithmetic_kernel<<<1, nullptr, stream>>>(static_cast<uint8_t*>(x), static_cast<uint8_t*>(rhs),
+    // dav-3510 TPipe allocates after dynamicStartUB; the launch must reserve
+    // both FP32 buffers and the 32-byte timer buffer (n is 32B aligned).
+    const uint32_t dynamicUbBytes = 2 * n * sizeof(float) + 32;
+    arithmetic_kernel<<<1, dynamicUbBytes, stream>>>(static_cast<uint8_t*>(x), static_cast<uint8_t*>(rhs),
         static_cast<uint8_t*>(out), static_cast<uint8_t*>(ticks), impl, op, n, threads, steps, calls);
 }
