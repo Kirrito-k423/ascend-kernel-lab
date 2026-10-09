@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.20)
+set(CANN "$ENV{ASCEND_HOME_PATH}")
+set(CMAKE_CXX_COMPILER "${CANN}/bin/bisheng")
+project(akl_bandwidth LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+add_executable(akl_bandwidth main.cpp kernel.cpp)
+target_include_directories(akl_bandwidth PRIVATE "${CANN}/include")
+target_compile_options(akl_bandwidth PRIVATE -O2 -g)
+set_source_files_properties(kernel.cpp PROPERTIES COMPILE_OPTIONS "-xasc;--npu-arch=dav-3510;-save-temps")
+target_link_options(akl_bandwidth PRIVATE --cce-fatobj-link)
+target_link_directories(akl_bandwidth PRIVATE "${CANN}/lib64")
+target_link_libraries(akl_bandwidth PRIVATE ascendcl runtime)
+set_target_properties(akl_bandwidth PROPERTIES BUILD_RPATH "${CANN}/lib64")
+add_custom_command(TARGET akl_bandwidth POST_BUILD
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/bandwidth_build_receipt.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../.." "$<TARGET_FILE:akl_bandwidth>" "${CANN}")

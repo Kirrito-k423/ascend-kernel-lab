@@ -12,6 +12,8 @@
 
 新增 [A5 SIMD / REG 同工作量对照](examples/a5_simd_mbench/README.md)：15 个 shape，Tensor API、REG 1/4 组与 SIMT 五档线程；1588 配置 × 两轮、47640 计时样本，完整输出和边界验证通过。[交互曲线](https://kirrito-k423.github.io/micro-benchmark-lab-web/?lab=simd) 同时保留一次批量与长依赖链、空对照和原始样本。
 
+新增 [A5 多核 DataCopy 带宽](examples/a5_bandwidth/README.md)：14 档 AIV、4 种 tile/batch，分区读写、1/2GiB 大工作集与复用对照；378 配置 × 两轮、9072 计时样本通过验收。64 核观测约 2.08–2.10TB/s，但到最大可用核数仍增长，未证明硬件带宽饱和。[交互曲线](https://kirrito-k423.github.io/micro-benchmark-lab-web/?lab=bandwidth) 使用 ACL Event 全任务共同区间，保留逐核原始差值。
+
 | 能力 | 目标 | 入口 |
 | --- | --- | --- |
 | Kernel Trace | 独立打点、原始时间戳、核间起点差异、阶段耗时、图片与时间线 | [设计](docs/trace-design.md)、[skill](skills/ascend-kernel-trace/SKILL.md) |
