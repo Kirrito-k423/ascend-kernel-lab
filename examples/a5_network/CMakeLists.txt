@@ -19,3 +19,8 @@ target_link_options(akl_network PRIVATE --cce-fatobj-link)
 target_link_directories(akl_network PRIVATE "${CANN}/lib64")
 target_link_libraries(akl_network PRIVATE "${SHMEM_LIB}" ascendcl runtime dl)
 set_target_properties(akl_network PROPERTIES BUILD_RPATH "${CANN}/lib64;${SHMEM_LIB_DIR}")
+# 使用规范化路径键，使不同主机的结果可按内容校验。
+add_custom_command(TARGET akl_network POST_BUILD
+  COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/make_receipt.py"
+  --binary "$<TARGET_FILE:akl_network>" --lib "${SHMEM_LIB}" --sdk "${SHMEM_ROOT}"
+  --output "${CMAKE_CURRENT_BINARY_DIR}/fingerprints.txt")
