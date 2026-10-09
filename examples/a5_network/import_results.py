@@ -20,9 +20,11 @@ def analyse(runs,fingerprints):
         m=json.loads((path/'manifest.json').read_text())
         require(m['status'] in ['validated','local_rank_validated'],'未验收/失败任务')
         require(m['binary_sha256']==receipt['build/akl_network'],'binary 哈希不一致')
+        require(m.get('shmem_library_sha256')=={k[4:]:v for k,v in receipt.items() if k.startswith('lib/')},
+                'SHMEM 完整动态库与构建凭据不一致')
         require(sha(path/'plan.csv')==m['plan_sha256'],'plan 哈希不一致')
         key=m['session'];pair=pairs.setdefault(key,{'metadata':m,'raw':{},'plan':(path/'plan.csv').read_text()})
-        require(all(pair['metadata'][k]==m[k] for k in ['binary_sha256','plan_sha256','engine','placement','warmup','samples','topology_evidence_sha256']),
+        require(all(pair['metadata'][k]==m[k] for k in ['binary_sha256','plan_sha256','engine','placement','warmup','samples','topology_evidence_sha256','shmem_library_sha256']),
                 '同一 session 两端配置不一致')
         if m['placement'] in ['same_cabinet','cross_cabinet']:
             topo=path/'topology-evidence.json'

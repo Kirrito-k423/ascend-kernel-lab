@@ -14,7 +14,8 @@ def snapshot(out,label):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--binary',type=Path,required=True);p.add_argument('--plan',type=Path,required=True)
+    p.add_argument('--binary',type=Path,required=True);p.add_argument('--library-dir',type=Path,required=True)
+    p.add_argument('--plan',type=Path,required=True)
     p.add_argument('--engine',choices=['mte','urma'],required=True)
     p.add_argument('--bootstrap',default='tcp://127.0.0.1:29850')
     p.add_argument('--devices',type=int,nargs=2,default=[0,1]);p.add_argument('--rank',type=int,choices=[0,1])
@@ -28,11 +29,16 @@ def main():
         p.error('柜号必须有 topology-evidence；仅机器编号不够')
     if a.samples<1 or a.warmup<0 or a.timeout<1:p.error('样本数/超时非法')
     a.output.mkdir(parents=True,exist_ok=False)
-    a.binary=a.binary.resolve();a.plan=a.plan.resolve();env=dict(os.environ,SHMEM_UID_SESSION_ID=a.session)
+    a.binary=a.binary.resolve();a.plan=a.plan.resolve();a.library_dir=a.library_dir.resolve()
+    if not (a.library_dir/'libshmem.so').is_file():raise ValueError('library-dir 缺少 libshmem.so')
+    # 可执行文件的 RUNPATH 不传递给间接依赖；显式选择完整的同版本 SHMEM 库目录。
+    env=dict(os.environ,SHMEM_UID_SESSION_ID=a.session,
+        LD_LIBRARY_PATH=str(a.library_dir)+':'+os.environ.get('LD_LIBRARY_PATH',''))
+    libraries={f.name:sha(f) for f in sorted(a.library_dir.glob('libshmem*.so*')) if f.is_file()}
     ranks=[0,1] if a.rank is None else [a.rank];procs=[];files=[]
     manifest=dict(schema='akl.network.run.v1',status='incomplete',session=a.session,
         placement=a.placement,engine=a.engine,ranks=ranks,devices=a.devices,warmup=a.warmup,samples=a.samples,
-        binary_sha256=sha(a.binary),plan_sha256=sha(a.plan),started=time.time(),
+        binary_sha256=sha(a.binary),plan_sha256=sha(a.plan),shmem_library_sha256=libraries,started=time.time(),
         topology_evidence_sha256=sha(a.topology_evidence) if a.topology_evidence else None,
         timing='initiator ACL Event through completion; host coordination outside event',
         fabric_exclusive=False)
