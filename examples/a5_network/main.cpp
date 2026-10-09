@@ -14,7 +14,7 @@
 #include <thread>
 #include <vector>
 extern "C" void launch_network(void*,void*,void*,void*,uint32_t,uint32_t,uint32_t,
-    uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t);
+    uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t);
 static void Check(int rc,const char* op){if(rc)throw std::runtime_error(std::string(op)+" rc="+std::to_string(rc));}
 #define AC(x) Check((x),#x)
 struct Coord {
@@ -84,10 +84,13 @@ static uint32_t Pattern(int rank,uint64_t index,uint32_t stamp){
 }
 int main(int argc,char** argv){
     try{
-        if(argc!=9)throw std::runtime_error("用法: DEVICE RANK tcp://IP:PORT mte|urma PLAN WARMUP SAMPLES OUTPUT");
+        if(argc!=9 && argc!=10)throw std::runtime_error("用法: DEVICE RANK tcp://IP:PORT mte|urma PLAN WARMUP SAMPLES OUTPUT [sdk|cq-grouped]");
         const int device=std::stoi(argv[1]),rank=std::stoi(argv[2]);
         const int engine=std::string(argv[4])=="mte"?0:std::string(argv[4])=="urma"?1:-1;
         const int warmup=std::stoi(argv[6]),samples=std::stoi(argv[7]);
+        const std::string completion=argc==10?argv[9]:"sdk";
+        if((completion!="sdk" && completion!="cq-grouped") || (engine==0 && completion!="sdk"))
+            throw std::runtime_error("完成方式与后端不符");
         if(rank<0||rank>1||engine<0||warmup<0||samples<1)throw std::runtime_error("参数错误");
         AC(aclInit(nullptr));AC(aclrtSetDevice(device));
         int64_t maxCores=0;AC(aclrtGetDeviceInfo(device,static_cast<aclrtDevAttr>(201),&maxCores));
@@ -128,14 +131,17 @@ int main(int argc,char** argv){
                 float ms=0;double hostUs=0;std::vector<uint64_t> ticks(c.cores*4);
                 if(rank==0){
                     auto t=std::chrono::steady_clock::now();AC(aclrtRecordEvent(begin,stream));
-                    launch_network(stream,x+128,y+128,tickPtr,c.cores,engine,c.get,c.part,c.slots,c.ops,c.batch,c.qps,c.control);
+                    launch_network(stream,x+128,y+128,tickPtr,c.cores,engine,c.get,c.part,c.slots,c.ops,c.batch,c.qps,c.control,completion=="cq-grouped");
                     AC(aclrtRecordEvent(end,stream));AC(aclrtSynchronizeStream(stream));
                     AC(aclrtEventElapsedTime(&ms,begin,end));
                     hostUs=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-t).count();
                     if(!(ms>0))throw std::runtime_error("非正计时");
                     AC(aclrtMemcpy(ticks.data(),c.cores*32,tickPtr,c.cores*32,ACL_MEMCPY_DEVICE_TO_HOST));
-                    for(uint32_t k=0;k<c.cores;++k)if(ticks[k*4+1]<=ticks[k*4]||ticks[k*4+2]!=k||
-                        ticks[k*4+3]!=0x414b4c4e455431ULL)throw std::runtime_error("核计时不完整");
+                    for(uint32_t k=0;k<c.cores;++k){
+                        if(ticks[k*4+3]!=0x414b4c4e455431ULL)
+                            throw std::runtime_error("核计时未提交或 CQ 完成错误 code="+std::to_string(ticks[k*4+3]));
+                        if(ticks[k*4+1]<=ticks[k*4]||ticks[k*4+2]!=k)throw std::runtime_error("核计时不完整");
+                    }
                 }
                 // TCP 仅用于测量窗口之外的准备/完成/验收协调，不参与带宽计时。
                 coord.Exchange();uint64_t bad=0;
@@ -151,7 +157,8 @@ int main(int argc,char** argv){
                    <<",\"engine\":\""<<(engine?"urma":"mte")<<"\",\"operation\":\""<<(c.get?"get":"put")
                    <<"\",\"requested_bytes\":"<<c.requested<<",\"message_bytes\":"<<c.actual
                    <<",\"cores\":"<<c.cores<<",\"batch\":"<<c.batch<<",\"qps\":"<<c.qps
-                   <<",\"configured_qps\":"<<maxQps<<",\"ring_bytes\":"<<c.ring<<",\"slots\":"<<c.slots
+                   <<",\"configured_qps\":"<<maxQps<<",\"completion_impl\":\""<<completion
+                   <<"\",\"ring_bytes\":"<<c.ring<<",\"slots\":"<<c.slots
                    <<",\"operations\":"<<c.ops<<",\"moved_bytes\":"<<c.moved<<",\"control\":"<<c.control
                    <<",\"event_ms\":"<<ms<<",\"host_launch_sync_us\":"<<hostUs<<",\"soc\":\""<<soc
                    <<"\",\"available_aiv\":"<<maxCores<<",\"mismatches\":"<<bad<<",\"ticks\":[";

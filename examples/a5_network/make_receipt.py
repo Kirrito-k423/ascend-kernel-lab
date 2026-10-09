@@ -6,7 +6,7 @@ p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--binary',type=Path,required=True);p.add_argument('--lib',type=Path,required=True)
 p.add_argument('--sdk',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
 a=p.parse_args();root=Path(__file__).resolve().parent
-files={f'src/{name}':root/name for name in ['main.cpp','kernel.cpp','CMakeLists.txt','run_pair.py','plan.py','import_results.py','make_receipt.py']}
+files={f'src/{name}':root/name for name in ['main.cpp','kernel.cpp','shared_cq_completion.h','CMakeLists.txt','run_pair.py','plan.py','import_results.py','make_receipt.py']}
 files['build/akl_network']=a.binary
 for path in sorted(a.lib.parent.glob('*.so*')):
  if path.is_file():files['lib/'+path.name]=path

@@ -14,17 +14,19 @@ def analyse(runs,fingerprints):
     for line in fingerprints.read_text().splitlines():
         digest,name=line.split(maxsplit=1);receipt[name.strip()]=digest
     require('build/akl_network' in receipt and 'lib/libshmem.so' in receipt,'构建凭据不完整')
-    for name in ['main.cpp','kernel.cpp','CMakeLists.txt']:
+    for name in ['main.cpp','kernel.cpp','shared_cq_completion.h','CMakeLists.txt','run_pair.py','import_results.py']:
         require(receipt.get('src/'+name)==sha(Path(__file__).parent/name),'当前源码与编译凭据不一致')
     for path in runs:
         m=json.loads((path/'manifest.json').read_text())
+        require(m.get('completion_impl') in ['sdk','cq-grouped'] and
+                (m['engine']=='urma' or m['completion_impl']=='sdk'),'完成方式缺失或非法')
         require(m['status'] in ['validated','local_rank_validated'],'未验收/失败任务')
         require(m['binary_sha256']==receipt['build/akl_network'],'binary 哈希不一致')
         require(m.get('shmem_library_sha256')=={k[4:]:v for k,v in receipt.items() if k.startswith('lib/')},
                 'SHMEM 完整动态库与构建凭据不一致')
         require(sha(path/'plan.csv')==m['plan_sha256'],'plan 哈希不一致')
         key=m['session'];pair=pairs.setdefault(key,{'metadata':m,'raw':{},'plan':(path/'plan.csv').read_text()})
-        require(all(pair['metadata'][k]==m[k] for k in ['binary_sha256','plan_sha256','engine','placement','warmup','samples','topology_evidence_sha256','shmem_library_sha256']),
+        require(all(pair['metadata'][k]==m[k] for k in ['binary_sha256','plan_sha256','engine','completion_impl','placement','warmup','samples','topology_evidence_sha256','shmem_library_sha256']),
                 '同一 session 两端配置不一致')
         if m['placement'] in ['same_cabinet','cross_cabinet']:
             topo=path/'topology-evidence.json'
@@ -61,11 +63,12 @@ def analyse(runs,fingerprints):
             for s in range(-m['warmup'],m['samples']):
                 a,b=indexed[0][cid,s],indexed[1][cid,s]
                 fields=['engine','operation','requested_bytes','message_bytes','cores','batch','qps','configured_qps',
-                        'ring_bytes','slots','operations','moved_bytes','control','soc']
+                        'ring_bytes','slots','operations','moved_bytes','control','soc','completion_impl']
                 require(all(a[k]==b[k] for k in fields),'双端实际配置不同')
                 require((a['cores'],a['requested_bytes'],a['batch'],a['qps'],a['control'])==(cores,requested,batch,qps,control),
                         '实际参数与计划不同')
                 require(a['engine']==m['engine'] and a['operation']==('get' if get else 'put'),'接口/方向不符')
+                require(a['completion_impl']==m['completion_impl'],'实际完成方式与 manifest 不符')
                 require(a['event_ms']>0 and b['event_ms']==0 and not b['ticks'],'无发起方有效完成计时')
                 require(len(a['ticks'])==cores*4,'核记录数量错误')
                 for k in range(cores):
@@ -82,7 +85,7 @@ def analyse(runs,fingerprints):
             med=statistics.median(samples);r=reference
             outputs.append(dict(id=hashlib.sha256((trial+'/'+str(cid)).encode()).hexdigest()[:16],
                 placement=m['placement'],engine=r['engine'],operation=r['operation'],cores=cores,batch=batch,qps=qps,
-                configuredQps=r['configured_qps'],requestedBytes=requested,messageBytes=r['message_bytes'],
+                configuredQps=r['configured_qps'],completionImpl=r['completion_impl'],requestedBytes=requested,messageBytes=r['message_bytes'],
                 ringBytes=r['ring_bytes'],requestedWorksetBytes=workset,operations=r['operations'],movedBytes=r['moved_bytes'],control=bool(control),
                 eventMs=samples,warmupEventMs=warm,hostLaunchSyncUs=host,
                 p50Us=med*1000,p95Us=p95(samples)*1000,gbps=r['moved_bytes']/med/1e6,

@@ -17,6 +17,8 @@ def main():
     p.add_argument('--binary',type=Path,required=True);p.add_argument('--library-dir',type=Path,required=True)
     p.add_argument('--plan',type=Path,required=True)
     p.add_argument('--engine',choices=['mte','urma'],required=True)
+    p.add_argument('--completion',choices=['sdk','cq-grouped'],default='sdk',
+                   help='URMA 共享 CQ 的单 AIV 完成适配；默认保留 SDK 路径')
     p.add_argument('--bootstrap',default='tcp://127.0.0.1:29850')
     p.add_argument('--devices',type=int,nargs=2,default=[0,1]);p.add_argument('--rank',type=int,choices=[0,1])
     p.add_argument('--session',required=True);p.add_argument('--warmup',type=int,default=2)
@@ -25,6 +27,7 @@ def main():
     p.add_argument('--placement',choices=['same_host','same_cabinet','cross_cabinet','unknown'],default='unknown')
     p.add_argument('--topology-evidence',type=Path)
     a=p.parse_args()
+    if a.engine=='mte' and a.completion!='sdk':p.error('MTE 仅使用 sdk 完成方式')
     if a.placement in ['same_cabinet','cross_cabinet'] and not a.topology_evidence:
         p.error('柜号必须有 topology-evidence；仅机器编号不够')
     if a.samples<1 or a.warmup<0 or a.timeout<1:p.error('样本数/超时非法')
@@ -37,7 +40,7 @@ def main():
     libraries={f.name:sha(f) for f in sorted(a.library_dir.glob('*.so*')) if f.is_file()}
     ranks=[0,1] if a.rank is None else [a.rank];procs=[];files=[]
     manifest=dict(schema='akl.network.run.v1',status='incomplete',session=a.session,
-        placement=a.placement,engine=a.engine,ranks=ranks,devices=a.devices,warmup=a.warmup,samples=a.samples,
+        placement=a.placement,engine=a.engine,completion_impl=a.completion,ranks=ranks,devices=a.devices,warmup=a.warmup,samples=a.samples,
         binary_sha256=sha(a.binary),plan_sha256=sha(a.plan),shmem_library_sha256=libraries,started=time.time(),
         topology_evidence_sha256=sha(a.topology_evidence) if a.topology_evidence else None,
         timing='initiator ACL Event through completion; host coordination outside event',
@@ -49,7 +52,7 @@ def main():
         for rank in ranks:
             log=(a.output/f'rank{rank}.stdout').open('w');err=(a.output/f'rank{rank}.stderr').open('w');files.extend([log,err])
             cmd=[str(a.binary),str(a.devices[rank]),str(rank),a.bootstrap,a.engine,str(a.plan),
-                 str(a.warmup),str(a.samples),str(a.output/f'rank{rank}.jsonl')]
+                 str(a.warmup),str(a.samples),str(a.output/f'rank{rank}.jsonl'),a.completion]
             procs.append(subprocess.Popen(cmd,env=env,stdout=log,stderr=err,start_new_session=True))
         deadline=time.monotonic()+a.timeout
         while any(proc.poll() is None for proc in procs):
