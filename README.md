@@ -8,6 +8,8 @@
 
 先看 [运行与接入说明](docs/quickstart.md)、[实测报告](reports/a3-20260915/README.md) 和 [实现边界](docs/implementation-status.md)。跨核时钟严格校准、多卡竞争和真实业务仓接入尚未完成。
 
+新增 [A5 对齐与 SIMT 实测](examples/a5_mbench/README.md)：CANN 9.1.0、单 AIV、本地 GM。两轮共 4640 个配置轮次、60264 个计时样本，通过输出、原始计时、构建和占用证据校验；[交互网站](https://kirrito-k423.github.io/micro-benchmark-lab-web/?lab=alignment) 提供曲线、表格、原始样本与 PNG/SVG。
+
 | 能力 | 目标 | 入口 |
 | --- | --- | --- |
 | Kernel Trace | 独立打点、原始时间戳、核间起点差异、阶段耗时、图片与时间线 | [设计](docs/trace-design.md)、[skill](skills/ascend-kernel-trace/SKILL.md) |

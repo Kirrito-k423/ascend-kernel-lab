@@ -42,6 +42,13 @@ DataCopy 有 47 个 chunk，SIMT 有 48 个；将 start 依次设为 0/4/8…44�
 
 接收端使用网站仓的 `scripts/import-a5-mbench.py`，再次核对完整两轮、源文件/构建/样本哈希、输出校验和占用检查，再重算 p50/p95。`--allow-partial` 仅供本地预览，正式导入缺少配置时会失败。
 
+全量扫描的轮间波动明显，另补充 60 个配置的固定分配边界复验：同一进程复用同一组存活 GM 缓冲，覆盖 127/128/129、159/160/161、191/192/193、223/224/225、255/256/257 元素，两种 dtype 与方向，固定 DataCopyPad、单窗口、偏移 0。单独保存和展示，不能替换或混入全量扫描。
+
+```bash
+python3 scripts/run_paired_alignment.py --device 1 --round 1 --output results/paired-r1
+python3 scripts/run_paired_alignment.py --device 1 --round 2 --output results/paired-r2
+```
+
 ## 动态 UB
 
 该版本现场头文件 `dav_3510/kernel_tpipe_impl_c310.h` 中，TPipe 的 UB 地址从 `GetDynamicMemStartPos<Hardware::UB>()` 开始。启动 SIMT 混合内核时按 `2 × n × sizeof(float) + 32` 申请动态 UB，用于两个 FP32 缓冲与计时缓冲；容量随实验参数计算。不能将动态 UB 配成 0 后直接使用较大 TPipe 缓冲。预留栈和 Data Cache 由编译器/运行时管理。
@@ -51,4 +58,4 @@ DataCopy 有 47 个 chunk，SIMT 有 48 个；将 start 依次设为 0/4/8…44�
 - [官方 DataCopyPad GM→UB](https://www.hiascend.com/document/detail/en/CANNCommunityEdition/910/API/ascendcopapi/docs/en/api/SIMD-API/basic_api/memory_vector_compute/data_move/DataCopyPad_GMToUB.md)：GM 与 UB 起点、每块长度的对齐约束；实际签名以现场 CANN 头文件为准。
 - [官方 SIMT 核函数配置](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/910/API/ascendcopapi/docs/api/SIMT-API/SIMD与SIMT混合编程简介/扩展语法/核函数配置-147.md)：线程上限影响寄存器预算；每个实例的 launch bound 与实际线程数保持一致。
 
-状态：计划及运行代码准备中。NPU 正确性和性能只有在回收原始测量并核验后才标记 validated。
+状态：2026-10-09 在 Ascend950DT_9582 / CANN 9.1.0 完成两轮 NPU 实测并经接收端校验：1496 个全量 DataCopy 配置、60 个固定缓冲复验配置、764 个 SIMT 配置，共 60264 个正式计时样本。两轮 p50 差异中位数分别为 7.654%、3.359%、0.002%。详细数值、边界与原始 tick 见 [实测报告](https://github.com/Kirrito-k423/micro-benchmark-lab-web/blob/codex/a5-mbench-results/reports/a5-mbench-20261009.md) 和 [交互页面](https://kirrito-k423.github.io/micro-benchmark-lab-web/?lab=alignment)。占用中断和软件故障结果未计入。
